@@ -1,19 +1,17 @@
 #Requires -RunAsAdministrator
 <#
 .SYNOPSIS
-    Installs standard workstation applications.
+    Installs standard workstation applications via Chocolatey.
 
 .DESCRIPTION
-    Installs via winget:
+    Installs:
       - Google Chrome
       - Adobe Acrobat Reader DC
       - Slack
       - Tailscale
+      - Zoiper 5 Free
 
-    Installs via Chocolatey:
-      - Zoiper 5 Free (not available on winget)
-
-    Skips anything already installed.
+    Installs Chocolatey if not already present. Skips anything already installed.
 
 .PARAMETER TailscaleAuthKey
     Optional pre-auth key to auto-join the Tailscale network after install.
@@ -31,7 +29,7 @@ param(
 $ErrorActionPreference = "Stop"
 $ProgressPreference = "SilentlyContinue"
 # Stamped by pre-commit hook -- do not edit manually
-$Script:Revision = "cb546e8"
+$Script:Revision = "a4d1443"
 
 Write-Host "install-apps.ps1 rev $Script:Revision" -ForegroundColor DarkGray
 
@@ -54,28 +52,32 @@ Write-Host "  Workstation App Installer" -ForegroundColor Cyan
 Write-Host "========================================" -ForegroundColor Cyan
 Write-Host ""
 
-# Check winget is available
-$winget = Get-Command winget -ErrorAction SilentlyContinue
-if (-not $winget) {
-    Write-Error "winget is not available on this machine. Install App Installer from the Microsoft Store."
-    exit 1
+# ---------------------------------------------------------------------------
+# Install Chocolatey if not present
+# ---------------------------------------------------------------------------
+$choco = Get-Command choco -ErrorAction SilentlyContinue
+if (-not $choco) {
+    Write-Host "Installing Chocolatey..." -ForegroundColor Yellow
+    Set-ExecutionPolicy Bypass -Scope Process -Force
+    [System.Net.ServicePointManager]::SecurityProtocol = [System.Net.ServicePointManager]::SecurityProtocol -bor 3072
+    Invoke-Expression ((New-Object System.Net.WebClient).DownloadString('https://community.chocolatey.org/install.ps1'))
+    # Refresh PATH so choco is available
+    $env:Path = [System.Environment]::GetEnvironmentVariable("Path", "Machine") + ";" + [System.Environment]::GetEnvironmentVariable("Path", "User")
+    Write-Host "  Chocolatey installed." -ForegroundColor Green
+} else {
+    Write-Host "Using Chocolatey $(choco --version)" -ForegroundColor DarkGray
 }
-
-# Reset winget source on first run / fresh machines
-$testResult = winget search --id Microsoft.Edge --accept-source-agreements 2>&1
-if ($testResult -match "0x8a15000f|Data required by the source is missing") {
-    Write-Host "Initializing winget sources..." -ForegroundColor Yellow
-    winget source reset --force 2>&1 | Out-Null
-}
-
-Write-Host "Using winget $(winget --version)" -ForegroundColor DarkGray
 Write-Host ""
 
+# ---------------------------------------------------------------------------
+# Apps
+# ---------------------------------------------------------------------------
 $apps = @(
-    @{ Name = "Google Chrome";       Id = "Google.Chrome" },
-    @{ Name = "Adobe Acrobat Reader"; Id = "Adobe.Acrobat.Reader.64-bit" },
-    @{ Name = "Slack";               Id = "SlackTechnologies.Slack" },
-    @{ Name = "Tailscale";           Id = "tailscale.tailscale" }
+    @{ Name = "Google Chrome";       Id = "googlechrome" },
+    @{ Name = "Adobe Acrobat Reader"; Id = "adobereader" },
+    @{ Name = "Slack";               Id = "slack" },
+    @{ Name = "Tailscale";           Id = "tailscale" },
+    @{ Name = "Zoiper 5";            Id = "zoiper" }
 )
 
 $total = $apps.Count
@@ -85,12 +87,11 @@ foreach ($app in $apps) {
     $current++
     Write-Host "[$current/$total] $($app.Name)..." -ForegroundColor Yellow
 
-    $result = winget list --id $app.Id --accept-source-agreements 2>&1
-    if ($result -match $app.Id) {
+    $installed = choco list --local-only --id-only 2>&1 | Select-String -Pattern "^$($app.Id)$" -Quiet
+    if ($installed) {
         Write-Host "  Already installed. Skipping." -ForegroundColor Green
     } else {
-        Write-Host "  Installing..."
-        winget install --id $app.Id --silent --accept-package-agreements --accept-source-agreements
+        choco install $app.Id -y --no-progress
         if ($LASTEXITCODE -eq 0) {
             Write-Host "  $($app.Name) installed." -ForegroundColor Green
         } else {
@@ -107,7 +108,6 @@ if ($TailscaleAuthKey) {
     Write-Host "Joining Tailscale network..." -ForegroundColor Yellow
     $tsCmd = Get-Command tailscale -ErrorAction SilentlyContinue
     if (-not $tsCmd) {
-        # Tailscale CLI might not be in PATH yet after fresh install
         $tsPath = "C:\Program Files\Tailscale\tailscale.exe"
         if (Test-Path $tsPath) { $tsCmd = $tsPath } else { $tsCmd = $null }
     } else {
@@ -115,44 +115,17 @@ if ($TailscaleAuthKey) {
     }
 
     if ($tsCmd) {
-        & $tsCmd up --login-server https://headscale.mage.net --auth-key $TailscaleAuthKey
+        & $tsCmd up --login-server https://headscale.mage.net --auth-key $TailscaleAuthKey --timeout 30s
         if ($LASTEXITCODE -eq 0) {
             Write-Host "  Joined Tailscale network." -ForegroundColor Green
         } else {
             Write-Warning "  Tailscale auth failed (exit code $LASTEXITCODE)."
         }
     } else {
-        Write-Warning "  Tailscale CLI not found. Install may require a reboot before auth."
+        Write-Warning "  Tailscale CLI not found. May require a reboot before auth."
     }
     Write-Host ""
 }
-
-# ---------------------------------------------------------------------------
-# Zoiper 5 (via Chocolatey -- not available on winget)
-# ---------------------------------------------------------------------------
-Write-Host "Zoiper 5 (via Chocolatey)..." -ForegroundColor Yellow
-
-$zoiperInstalled = Get-ItemProperty "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\*","HKLM:\SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall\*" -ErrorAction SilentlyContinue | Where-Object { $_.DisplayName -like "*Zoiper*" }
-if ($zoiperInstalled) {
-    Write-Host "  Already installed. Skipping." -ForegroundColor Green
-} else {
-    # Install Chocolatey if not present
-    $choco = Get-Command choco -ErrorAction SilentlyContinue
-    if (-not $choco) {
-        Write-Host "  Installing Chocolatey..."
-        Set-ExecutionPolicy Bypass -Scope Process -Force
-        [System.Net.ServicePointManager]::SecurityProtocol = [System.Net.ServicePointManager]::SecurityProtocol -bor 3072
-        Invoke-Expression ((New-Object System.Net.WebClient).DownloadString('https://community.chocolatey.org/install.ps1'))
-    }
-    Write-Host "  Installing Zoiper 5..."
-    choco install zoiper -y
-    if ($LASTEXITCODE -eq 0) {
-        Write-Host "  Zoiper 5 installed." -ForegroundColor Green
-    } else {
-        Write-Warning "  Zoiper 5 install failed (exit code $LASTEXITCODE)."
-    }
-}
-Write-Host ""
 
 Write-Host "========================================" -ForegroundColor Green
 Write-Host "  App installation complete!" -ForegroundColor Green
