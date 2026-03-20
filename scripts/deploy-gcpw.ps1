@@ -8,7 +8,7 @@
     NewMachine mode (for fresh workstations):
       - Installs GCPW and Endpoint Verification
       - Configures domain restriction
-      - User gets Google login on next reboot — no profile association needed
+      - User gets Google login on next reboot -- no profile association needed
 
     Migration mode (Phase 1 + Phase 2, for existing JumpCloud machines):
       Phase 1 (safe, no disruption):
@@ -22,7 +22,7 @@
 
 .PARAMETER NewMachine
     Use this flag for fresh workstations with no existing user profile to
-    preserve. Installs GCPW and configures it — that's it.
+    preserve. Installs GCPW and configures it -- that's it.
 
 .PARAMETER GoogleEmail
     The user's Google Workspace email (e.g. jane@yourdomain.com).
@@ -392,7 +392,7 @@ if ($Phase -eq 2) {
     # Confirm backup admin exists
     $backupExists = Get-LocalUser -Name $BackupAdminUser -ErrorAction SilentlyContinue
     if (-not $backupExists) {
-        Write-Warning "Backup admin account '$BackupAdminUser' not found. Proceeding anyway — make sure you have another way to log in if something breaks."
+        Write-Warning "Backup admin account '$BackupAdminUser' not found. Proceeding anyway -- make sure you have another way to log in if something breaks."
     } else {
         Write-Host "  Backup admin account '$BackupAdminUser' exists." -ForegroundColor Green
     }
