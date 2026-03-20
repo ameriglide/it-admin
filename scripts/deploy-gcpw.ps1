@@ -77,7 +77,7 @@ param(
 
 $ErrorActionPreference = "Stop"
 $ProgressPreference = "SilentlyContinue"
-$Script:Revision = "08e0272"
+$Script:Revision = "27a26f3"
 
 Write-Host "deploy-gcpw.ps1 rev $Script:Revision" -ForegroundColor DarkGray
 
@@ -130,9 +130,38 @@ if ($NewMachine) {
     Write-Host ""
 
     # ------------------------------------------------------------------
-    # Step 1: Download and install GCPW
+    # Step 1: Create local admin account
     # ------------------------------------------------------------------
-    Write-Host "[1/3] Installing GCPW..." -ForegroundColor Yellow
+    Write-Host "[1/4] Creating local admin account..." -ForegroundColor Yellow
+
+    $backupExists = Get-LocalUser -Name $BackupAdminUser -ErrorAction SilentlyContinue
+    if ($backupExists) {
+        Write-Host "  Admin account '$BackupAdminUser' already exists. Skipping." -ForegroundColor Green
+    } else {
+        if (-not $BackupAdminPassword) {
+            $securePwd = Read-Host "  Enter password for local admin account '$BackupAdminUser'" -AsSecureString
+        } else {
+            $securePwd = ConvertTo-SecureString $BackupAdminPassword -AsPlainText -Force
+        }
+
+        New-LocalUser -Name $BackupAdminUser -Password $securePwd -Description "Local admin account" -PasswordNeverExpires | Out-Null
+        Add-LocalGroupMember -Group "Administrators" -Member $BackupAdminUser
+        Write-Host "  Created local admin account '$BackupAdminUser'." -ForegroundColor Green
+    }
+
+    # Disable auto-login if enabled
+    $winlogon = "HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Winlogon"
+    $autoLogin = Get-ItemProperty $winlogon -Name "AutoAdminLogon" -ErrorAction SilentlyContinue
+    if ($autoLogin -and $autoLogin.AutoAdminLogon -eq "1") {
+        Set-ItemProperty $winlogon -Name "AutoAdminLogon" -Value "0"
+        Write-Host "  Disabled auto-login (was preventing login screen from showing)." -ForegroundColor Yellow
+    }
+
+    # ------------------------------------------------------------------
+    # Step 2: Download and install GCPW
+    # ------------------------------------------------------------------
+    Write-Host ""
+    Write-Host "[2/4] Installing GCPW..." -ForegroundColor Yellow
 
     $gcpwInstalled = Get-WmiObject Win32_Product -Filter "Name LIKE '%Google Credential Provider%'" -ErrorAction SilentlyContinue
     if ($gcpwInstalled) {
@@ -152,10 +181,10 @@ if ($NewMachine) {
     }
 
     # ------------------------------------------------------------------
-    # Step 2: Configure GCPW registry
+    # Step 3: Configure GCPW registry
     # ------------------------------------------------------------------
     Write-Host ""
-    Write-Host "[2/3] Configuring GCPW..." -ForegroundColor Yellow
+    Write-Host "[3/4] Configuring GCPW..." -ForegroundColor Yellow
 
     if (-not (Test-Path $GcpwRegPath)) {
         New-Item -Path $GcpwRegPath -Force | Out-Null
@@ -184,11 +213,11 @@ if ($NewMachine) {
     }
 
     # ------------------------------------------------------------------
-    # Step 3: Endpoint Verification
+    # Step 4: Endpoint Verification
     # ------------------------------------------------------------------
     if (-not $SkipEndpointVerification) {
         Write-Host ""
-        Write-Host "[3/3] Installing Endpoint Verification..." -ForegroundColor Yellow
+        Write-Host "[4/4] Installing Endpoint Verification..." -ForegroundColor Yellow
 
         $evInstalled = Get-WmiObject Win32_Product -Filter "Name LIKE '%Endpoint Verification%'" -ErrorAction SilentlyContinue
         if ($evInstalled) {
@@ -204,7 +233,7 @@ if ($NewMachine) {
         }
     } else {
         Write-Host ""
-        Write-Host "[3/3] Skipping Endpoint Verification (flag set)." -ForegroundColor Yellow
+        Write-Host "[4/4] Skipping Endpoint Verification (flag set)." -ForegroundColor Yellow
     }
 
     # ------------------------------------------------------------------
