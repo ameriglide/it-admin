@@ -20,8 +20,9 @@ irm https://raw.githubusercontent.com/ameriglide/it-admin/main/scripts/deploy-gc
 
 **Phase 1** — Install GCPW alongside JumpCloud:
 ```powershell
-irm https://raw.githubusercontent.com/ameriglide/it-admin/main/scripts/deploy-gcpw.ps1 -OutFile $env:TEMP\deploy-gcpw.ps1; & $env:TEMP\deploy-gcpw.ps1 -GoogleEmail user@ameriglide.com -Domain ameriglide.com -Phase 1
+irm https://raw.githubusercontent.com/ameriglide/it-admin/main/scripts/deploy-gcpw.ps1 -OutFile $env:TEMP\deploy-gcpw.ps1; & $env:TEMP\deploy-gcpw.ps1 -GoogleEmail <USER>@ameriglide.com -Domain ameriglide.com -WindowsUsername <USER> -Phase 1
 ```
+Replace `<USER>` with the employee's username (e.g. `jsmith`).
 
 Reboot, verify Google login works and existing profile is intact, then:
 
