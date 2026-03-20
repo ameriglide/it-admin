@@ -29,7 +29,7 @@ param(
 $ErrorActionPreference = "Stop"
 $ProgressPreference = "SilentlyContinue"
 # Stamped by pre-commit hook -- do not edit manually
-$Script:Revision = "d37b7db"
+$Script:Revision = "251b12d"
 
 Write-Host "install-apps.ps1 rev $Script:Revision" -ForegroundColor DarkGray
 
@@ -77,7 +77,6 @@ $apps = @(
     @{ Name = "Adobe Acrobat Reader"; Id = "adobereader" },
     @{ Name = "Slack";               Id = "slack" },
     @{ Name = "Tailscale";           Id = "tailscale" },
-    @{ Name = "Zoiper 5";            Id = "zoiper" },
     @{ Name = "Google Drive";        Id = "googledrive" }
 )
 
@@ -116,7 +115,7 @@ if ($TailscaleAuthKey) {
     }
 
     if ($tsCmd) {
-        & $tsCmd up --login-server https://headscale.mage.net --auth-key $TailscaleAuthKey --timeout 30s
+        & $tsCmd up --login-server https://headscale.mage.net --auth-key $TailscaleAuthKey --unattended --timeout 30s
         if ($LASTEXITCODE -eq 0) {
             Write-Host "  Joined Tailscale network." -ForegroundColor Green
         } else {
@@ -127,6 +126,28 @@ if ($TailscaleAuthKey) {
     }
     Write-Host ""
 }
+
+# ---------------------------------------------------------------------------
+# Zoiper 5 (hosted in repo -- not available on winget or choco reliably)
+# ---------------------------------------------------------------------------
+Write-Host "Zoiper 5..." -ForegroundColor Yellow
+
+$zoiperInstalled = Get-ItemProperty "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\*","HKLM:\SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall\*" -ErrorAction SilentlyContinue | Where-Object { $_.DisplayName -like "*Zoiper*" }
+if ($zoiperInstalled) {
+    Write-Host "  Already installed. Skipping." -ForegroundColor Green
+} else {
+    $zoiperExe = "$env:TEMP\Zoiper5_Installer.exe"
+    Write-Host "  Downloading from GitHub..."
+    Invoke-WebRequest -Uri "https://github.com/ameriglide/it-admin/raw/main/installers/Zoiper5_Installer.exe" -OutFile $zoiperExe -UseBasicParsing
+    Write-Host "  Installing..."
+    $process = Start-Process -FilePath $zoiperExe -ArgumentList "--mode unattended --unattendedmodeui none --zoiper_alluser_installation 1" -Wait -PassThru
+    if ($process.ExitCode -eq 0) {
+        Write-Host "  Zoiper 5 installed." -ForegroundColor Green
+    } else {
+        Write-Warning "  Zoiper 5 install failed (exit code $($process.ExitCode))."
+    }
+}
+Write-Host ""
 
 Write-Host "========================================" -ForegroundColor Green
 Write-Host "  App installation complete!" -ForegroundColor Green
