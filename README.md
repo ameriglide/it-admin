@@ -13,14 +13,14 @@ Deploys [Google Credential Provider for Windows](https://support.google.com/a/an
 Open PowerShell **as Administrator** and paste:
 
 ```powershell
-irm https://raw.githubusercontent.com/ameriglide/it-admin/main/scripts/deploy-gcpw.ps1 -OutFile $env:TEMP\deploy-gcpw.ps1; & $env:TEMP\deploy-gcpw.ps1 -NewMachine -Domain yourdomain.com
+irm https://raw.githubusercontent.com/ameriglide/it-admin/main/scripts/deploy-gcpw.ps1 -OutFile $env:TEMP\deploy-gcpw.ps1; & $env:TEMP\deploy-gcpw.ps1 -NewMachine -Domain ameriglide.com
 ```
 
 ### JumpCloud Migration (existing machine)
 
 **Phase 1** — Install GCPW alongside JumpCloud:
 ```powershell
-irm https://raw.githubusercontent.com/ameriglide/it-admin/main/scripts/deploy-gcpw.ps1 -OutFile $env:TEMP\deploy-gcpw.ps1; & $env:TEMP\deploy-gcpw.ps1 -GoogleEmail user@yourdomain.com -Domain yourdomain.com -Phase 1
+irm https://raw.githubusercontent.com/ameriglide/it-admin/main/scripts/deploy-gcpw.ps1 -OutFile $env:TEMP\deploy-gcpw.ps1; & $env:TEMP\deploy-gcpw.ps1 -GoogleEmail user@ameriglide.com -Domain ameriglide.com -Phase 1
 ```
 
 Reboot, verify Google login works and existing profile is intact, then:
