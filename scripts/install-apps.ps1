@@ -1,15 +1,19 @@
+#Requires -RunAsAdministrator
 <#
 .SYNOPSIS
-    Installs standard workstation applications via winget.
+    Installs standard workstation applications.
 
 .DESCRIPTION
-    Installs:
+    Installs via winget:
       - Google Chrome
-      - Adobe Acrobat Reader DC (no McAfee)
-      - Zoiper 5 Free (VoIP softphone)
+      - Adobe Acrobat Reader DC
       - Slack
+      - Tailscale
 
-    Uses winget for version-stable installs. Skips anything already installed.
+    Installs via Chocolatey:
+      - Zoiper 5 Free (not available on winget)
+
+    Skips anything already installed.
 
 .EXAMPLE
     .\install-apps.ps1
@@ -18,7 +22,7 @@
 $ErrorActionPreference = "Stop"
 $ProgressPreference = "SilentlyContinue"
 # Stamped by pre-commit hook -- do not edit manually
-$Script:Revision = "e8dcdd0"
+$Script:Revision = "9b4ff0a"
 
 Write-Host "install-apps.ps1 rev $Script:Revision" -ForegroundColor DarkGray
 
@@ -41,16 +45,6 @@ Write-Host "  Workstation App Installer" -ForegroundColor Cyan
 Write-Host "========================================" -ForegroundColor Cyan
 Write-Host ""
 
-# If running elevated, re-launch as non-admin (winget breaks in elevated sessions on fresh machines)
-$isAdmin = ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
-if ($isAdmin) {
-    Write-Host "Detected elevated session -- relaunching as non-admin (winget requirement)..." -ForegroundColor Yellow
-    $scriptPath = $MyInvocation.MyCommand.Path
-    if (-not $scriptPath) { $scriptPath = "$env:TEMP\install-apps.ps1" }
-    Start-Process powershell.exe -ArgumentList "-ExecutionPolicy Bypass -File `"$scriptPath`"" -Wait
-    exit $LASTEXITCODE
-}
-
 # Check winget is available
 $winget = Get-Command winget -ErrorAction SilentlyContinue
 if (-not $winget) {
@@ -71,8 +65,8 @@ Write-Host ""
 $apps = @(
     @{ Name = "Google Chrome";       Id = "Google.Chrome" },
     @{ Name = "Adobe Acrobat Reader"; Id = "Adobe.Acrobat.Reader.64-bit" },
-    @{ Name = "Zoiper 5";            Id = "Zoiper.Zoiper5" },
-    @{ Name = "Slack";               Id = "SlackTechnologies.Slack" }
+    @{ Name = "Slack";               Id = "SlackTechnologies.Slack" },
+    @{ Name = "Tailscale";           Id = "tailscale.tailscale" }
 )
 
 $total = $apps.Count
@@ -96,6 +90,33 @@ foreach ($app in $apps) {
     }
     Write-Host ""
 }
+
+# ---------------------------------------------------------------------------
+# Zoiper 5 (via Chocolatey -- not available on winget)
+# ---------------------------------------------------------------------------
+Write-Host "Zoiper 5 (via Chocolatey)..." -ForegroundColor Yellow
+
+$zoiperInstalled = Get-ItemProperty "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\*","HKLM:\SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall\*" -ErrorAction SilentlyContinue | Where-Object { $_.DisplayName -like "*Zoiper*" }
+if ($zoiperInstalled) {
+    Write-Host "  Already installed. Skipping." -ForegroundColor Green
+} else {
+    # Install Chocolatey if not present
+    $choco = Get-Command choco -ErrorAction SilentlyContinue
+    if (-not $choco) {
+        Write-Host "  Installing Chocolatey..."
+        Set-ExecutionPolicy Bypass -Scope Process -Force
+        [System.Net.ServicePointManager]::SecurityProtocol = [System.Net.ServicePointManager]::SecurityProtocol -bor 3072
+        Invoke-Expression ((New-Object System.Net.WebClient).DownloadString('https://community.chocolatey.org/install.ps1'))
+    }
+    Write-Host "  Installing Zoiper 5..."
+    choco install zoiper -y
+    if ($LASTEXITCODE -eq 0) {
+        Write-Host "  Zoiper 5 installed." -ForegroundColor Green
+    } else {
+        Write-Warning "  Zoiper 5 install failed (exit code $LASTEXITCODE)."
+    }
+}
+Write-Host ""
 
 Write-Host "========================================" -ForegroundColor Green
 Write-Host "  App installation complete!" -ForegroundColor Green
