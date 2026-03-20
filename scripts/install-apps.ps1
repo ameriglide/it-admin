@@ -29,7 +29,7 @@ param(
 $ErrorActionPreference = "Stop"
 $ProgressPreference = "SilentlyContinue"
 # Stamped by pre-commit hook -- do not edit manually
-$Script:Revision = "3fc1b48"
+$Script:Revision = "70b15be"
 
 Write-Host "install-apps.ps1 rev $Script:Revision" -ForegroundColor DarkGray
 
@@ -137,19 +137,8 @@ if ($zoiperInstalled) {
     Write-Host "  Already installed. Skipping." -ForegroundColor Green
 } else {
     $zoiperExe = "$env:TEMP\Zoiper5_Installer.exe"
-    $driveId = "1BBsKwSpOnc9xP8Hu3fuel05pJaWCGN13"
-    Write-Host "  Downloading from Google Drive..."
-    # Google Drive shows a virus scan warning for large files -- need to grab the confirm token
-    $session = New-Object Microsoft.PowerShell.Commands.WebRequestSession
-    $response = Invoke-WebRequest -Uri "https://drive.google.com/uc?export=download&id=$driveId" -SessionVariable session -UseBasicParsing
-    $confirmToken = ($response.Links | Where-Object { $_.href -match "confirm=" } | Select-Object -First 1).href
-    if ($confirmToken -match "confirm=([^&]+)") {
-        $confirm = $Matches[1]
-        Invoke-WebRequest -Uri "https://drive.google.com/uc?export=download&confirm=$confirm&id=$driveId" -OutFile $zoiperExe -WebSession $session -UseBasicParsing
-    } else {
-        # No confirmation needed or already got the file
-        Invoke-WebRequest -Uri "https://drive.google.com/uc?export=download&confirm=t&id=$driveId" -OutFile $zoiperExe -WebSession $session -UseBasicParsing
-    }
+    Write-Host "  Downloading..."
+    Invoke-WebRequest -Uri "https://github.com/ameriglide/it-admin/releases/download/v0.1.0/Zoiper5_Installer.exe" -OutFile $zoiperExe -UseBasicParsing
     Write-Host "  Installing..."
     $process = Start-Process -FilePath $zoiperExe -ArgumentList "--mode unattended --unattendedmodeui none --zoiper_alluser_installation 1" -Wait -PassThru
     if ($process.ExitCode -eq 0) {
