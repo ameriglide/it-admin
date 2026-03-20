@@ -77,7 +77,7 @@ param(
 
 $ErrorActionPreference = "Stop"
 $ProgressPreference = "SilentlyContinue"
-$Script:Revision = "00140b7"
+$Script:Revision = "4e55387"
 
 Write-Host "deploy-gcpw.ps1 rev $Script:Revision" -ForegroundColor DarkGray
 
@@ -105,8 +105,54 @@ $GcpwRegPath      = "HKLM:\SOFTWARE\Google\GCPW"
 $EvMsiUrl         = "https://dl.google.com/secureconnect/install/win/EndpointVerification_admin.msi"
 $EvMsiPath        = "$env:TEMP\EndpointVerification.msi"
 $BackupAdminUser  = "localadmin"
+$GcpwClsid        = "HKCR:\CLSID\{0B5BFDF0-4594-47AC-940A-CFC69ABC561C}"
 $JcAgentPath      = "C:\Program Files\JumpCloud"
 $JcUninstaller    = "C:\Program Files\JumpCloud\Uninstall.exe"
+
+# ---------------------------------------------------------------------------
+# Helpers
+# ---------------------------------------------------------------------------
+function Install-GCPW {
+    $gcpwInstalled = Get-WmiObject Win32_Product -Filter "Name LIKE '%Google Credential Provider%'" -ErrorAction SilentlyContinue
+    if ($gcpwInstalled) {
+        Write-Host "  GCPW already installed (version $($gcpwInstalled.Version))." -ForegroundColor Green
+    } else {
+        [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
+        Write-Host "  Downloading GCPW..."
+        Invoke-WebRequest -Uri $GcpwMsiUrl -OutFile $GcpwMsiPath -UseBasicParsing
+
+        Write-Host "  Installing..."
+        $process = Start-Process msiexec.exe -ArgumentList "/i `"$GcpwMsiPath`" /quiet /norestart" -Wait -PassThru
+        if ($process.ExitCode -ne 0) {
+            Write-Error "GCPW installation failed with exit code $($process.ExitCode)"
+            exit 1
+        }
+    }
+
+    # Verify the credential provider DLL was actually extracted
+    # Map HKCR since PowerShell doesn't mount it by default
+    if (-not (Test-Path "HKCR:\")) {
+        New-PSDrive -Name HKCR -PSProvider Registry -Root HKEY_CLASSES_ROOT -ErrorAction SilentlyContinue | Out-Null
+    }
+    $clsidEntry = Get-ItemProperty "$GcpwClsid\InprocServer32" -ErrorAction SilentlyContinue
+    if (-not $clsidEntry -or -not (Test-Path $clsidEntry.'(default)')) {
+        Write-Warning "  GCPW installed but DLL not found. Attempting reinstall..."
+        $process = Start-Process msiexec.exe -ArgumentList "/x `"$GcpwMsiPath`" /quiet /norestart" -Wait -PassThru
+        Start-Sleep 3
+        $process = Start-Process msiexec.exe -ArgumentList "/i `"$GcpwMsiPath`" /quiet /norestart" -Wait -PassThru
+        if ($process.ExitCode -ne 0) {
+            Write-Error "GCPW reinstall failed with exit code $($process.ExitCode)"
+            exit 1
+        }
+        # Check again
+        $clsidEntry = Get-ItemProperty "$GcpwClsid\InprocServer32" -ErrorAction SilentlyContinue
+        if (-not $clsidEntry -or -not (Test-Path $clsidEntry.'(default)')) {
+            Write-Error "GCPW DLL still missing after reinstall. Check $env:TEMP\gcpw_install.log for details."
+            exit 1
+        }
+    }
+    Write-Host "  GCPW installed and verified." -ForegroundColor Green
+}
 
 # ============================================================================
 #  NEW MACHINE: Fresh GCPW setup, no migration
@@ -171,23 +217,7 @@ if ($NewMachine) {
     # ------------------------------------------------------------------
     Write-Host ""
     Write-Host "[2/4] Installing GCPW..." -ForegroundColor Yellow
-
-    $gcpwInstalled = Get-WmiObject Win32_Product -Filter "Name LIKE '%Google Credential Provider%'" -ErrorAction SilentlyContinue
-    if ($gcpwInstalled) {
-        Write-Host "  GCPW already installed (version $($gcpwInstalled.Version)). Skipping." -ForegroundColor Green
-    } else {
-        [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
-        Write-Host "  Downloading GCPW..."
-        Invoke-WebRequest -Uri $GcpwMsiUrl -OutFile $GcpwMsiPath -UseBasicParsing
-
-        Write-Host "  Installing..."
-        $process = Start-Process msiexec.exe -ArgumentList "/i `"$GcpwMsiPath`" /quiet /norestart" -Wait -PassThru
-        if ($process.ExitCode -ne 0) {
-            Write-Error "GCPW installation failed with exit code $($process.ExitCode)"
-            exit 1
-        }
-        Write-Host "  GCPW installed successfully." -ForegroundColor Green
-    }
+    Install-GCPW
 
     # ------------------------------------------------------------------
     # Step 3: Configure GCPW registry
@@ -347,23 +377,7 @@ if ($Phase -eq 1) {
     # ------------------------------------------------------------------
     Write-Host ""
     Write-Host "[3/5] Installing GCPW..." -ForegroundColor Yellow
-
-    $gcpwInstalled = Get-WmiObject Win32_Product -Filter "Name LIKE '%Google Credential Provider%'" -ErrorAction SilentlyContinue
-    if ($gcpwInstalled) {
-        Write-Host "  GCPW already installed (version $($gcpwInstalled.Version)). Skipping." -ForegroundColor Green
-    } else {
-        [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
-        Write-Host "  Downloading GCPW..."
-        Invoke-WebRequest -Uri $GcpwMsiUrl -OutFile $GcpwMsiPath -UseBasicParsing
-
-        Write-Host "  Installing..."
-        $process = Start-Process msiexec.exe -ArgumentList "/i `"$GcpwMsiPath`" /quiet /norestart" -Wait -PassThru
-        if ($process.ExitCode -ne 0) {
-            Write-Error "GCPW installation failed with exit code $($process.ExitCode)"
-            exit 1
-        }
-        Write-Host "  GCPW installed successfully." -ForegroundColor Green
-    }
+    Install-GCPW
 
     # ------------------------------------------------------------------
     # Step 4: Configure GCPW registry

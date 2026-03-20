@@ -18,7 +18,7 @@
 
 $ErrorActionPreference = "Stop"
 $ProgressPreference = "SilentlyContinue"
-$Script:Revision = "00140b7"
+$Script:Revision = "4e55387"
 
 Write-Host "install-apps.ps1 rev $Script:Revision" -ForegroundColor DarkGray
 
