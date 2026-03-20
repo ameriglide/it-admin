@@ -3,9 +3,8 @@
 # Stamp each script with the latest commit that touched it
 for script in scripts/*.ps1; do
   if grep -q 'Script:Revision' "$script"; then
-    # Only update if this script is staged for commit
     if git diff --cached --name-only | grep -q "$(basename "$script")"; then
-      REV=$(git rev-parse --short HEAD)
+      REV=$(git log -1 --format=%h -- "$script")
       sed -i '' "s/\$Script:Revision = \".*\"/\$Script:Revision = \"$REV\"/" "$script"
       git add "$script"
     fi
