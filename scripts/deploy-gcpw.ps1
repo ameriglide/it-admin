@@ -77,7 +77,7 @@ param(
 
 $ErrorActionPreference = "Stop"
 $ProgressPreference = "SilentlyContinue"
-$Script:Revision = "27a26f3"
+$Script:Revision = "00140b7"
 
 Write-Host "deploy-gcpw.ps1 rev $Script:Revision" -ForegroundColor DarkGray
 
@@ -140,6 +140,15 @@ if ($NewMachine) {
     } else {
         if (-not $BackupAdminPassword) {
             $securePwd = Read-Host "  Enter password for local admin account '$BackupAdminUser'" -AsSecureString
+            $confirmPwd = Read-Host "  Confirm password" -AsSecureString
+            $plain1 = [Runtime.InteropServices.Marshal]::PtrToStringAuto([Runtime.InteropServices.Marshal]::SecureStringToBSTR($securePwd))
+            $plain2 = [Runtime.InteropServices.Marshal]::PtrToStringAuto([Runtime.InteropServices.Marshal]::SecureStringToBSTR($confirmPwd))
+            if ($plain1 -ne $plain2) {
+                Write-Error "Passwords do not match. Aborting."
+                exit 1
+            }
+            $plain1 = $null
+            $plain2 = $null
         } else {
             $securePwd = ConvertTo-SecureString $BackupAdminPassword -AsPlainText -Force
         }
@@ -292,6 +301,15 @@ if ($Phase -eq 1) {
     } else {
         if (-not $BackupAdminPassword) {
             $securePwd = Read-Host "  Enter password for backup admin account '$BackupAdminUser'" -AsSecureString
+            $confirmPwd = Read-Host "  Confirm password" -AsSecureString
+            $plain1 = [Runtime.InteropServices.Marshal]::PtrToStringAuto([Runtime.InteropServices.Marshal]::SecureStringToBSTR($securePwd))
+            $plain2 = [Runtime.InteropServices.Marshal]::PtrToStringAuto([Runtime.InteropServices.Marshal]::SecureStringToBSTR($confirmPwd))
+            if ($plain1 -ne $plain2) {
+                Write-Error "Passwords do not match. Aborting."
+                exit 1
+            }
+            $plain1 = $null
+            $plain2 = $null
         } else {
             $securePwd = ConvertTo-SecureString $BackupAdminPassword -AsPlainText -Force
         }
