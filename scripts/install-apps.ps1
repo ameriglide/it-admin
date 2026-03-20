@@ -18,7 +18,7 @@
 $ErrorActionPreference = "Stop"
 $ProgressPreference = "SilentlyContinue"
 # Stamped by pre-commit hook -- do not edit manually
-$Script:Revision = "47b3ed8"
+$Script:Revision = "e8dcdd0"
 
 Write-Host "install-apps.ps1 rev $Script:Revision" -ForegroundColor DarkGray
 
@@ -40,6 +40,16 @@ Write-Host "========================================" -ForegroundColor Cyan
 Write-Host "  Workstation App Installer" -ForegroundColor Cyan
 Write-Host "========================================" -ForegroundColor Cyan
 Write-Host ""
+
+# If running elevated, re-launch as non-admin (winget breaks in elevated sessions on fresh machines)
+$isAdmin = ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
+if ($isAdmin) {
+    Write-Host "Detected elevated session -- relaunching as non-admin (winget requirement)..." -ForegroundColor Yellow
+    $scriptPath = $MyInvocation.MyCommand.Path
+    if (-not $scriptPath) { $scriptPath = "$env:TEMP\install-apps.ps1" }
+    Start-Process powershell.exe -ArgumentList "-ExecutionPolicy Bypass -File `"$scriptPath`"" -Wait
+    exit $LASTEXITCODE
+}
 
 # Check winget is available
 $winget = Get-Command winget -ErrorAction SilentlyContinue
