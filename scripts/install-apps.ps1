@@ -29,7 +29,7 @@ param(
 $ErrorActionPreference = "Stop"
 $ProgressPreference = "SilentlyContinue"
 # Stamped by pre-commit hook -- do not edit manually
-$Script:Revision = "a4d1443"
+$Script:Revision = "b065524"
 
 Write-Host "install-apps.ps1 rev $Script:Revision" -ForegroundColor DarkGray
 
@@ -77,7 +77,8 @@ $apps = @(
     @{ Name = "Adobe Acrobat Reader"; Id = "adobereader" },
     @{ Name = "Slack";               Id = "slack" },
     @{ Name = "Tailscale";           Id = "tailscale" },
-    @{ Name = "Zoiper 5";            Id = "zoiper" }
+    @{ Name = "Zoiper 5";            Id = "zoiper" },
+    @{ Name = "Google Drive";        Id = "googledrive" }
 )
 
 $total = $apps.Count
