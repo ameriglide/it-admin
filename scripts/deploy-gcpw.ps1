@@ -77,16 +77,17 @@ param(
 
 $ErrorActionPreference = "Stop"
 $ProgressPreference = "SilentlyContinue"
-$Script:Revision = "12ff295"
+$Script:Revision = "414dd5c"
 
 Write-Host "deploy-gcpw.ps1 rev $Script:Revision" -ForegroundColor DarkGray
 
 # Check if this is the latest version
 try {
-    $latestSha = (Invoke-RestMethod -Uri "https://api.github.com/repos/ameriglide/it-admin/commits/main" -ErrorAction Stop).sha.Substring(0, 7)
-    if ($Script:Revision -ne "dev" -and $latestSha -ne $Script:Revision) {
+    $commits = Invoke-RestMethod -Uri "https://api.github.com/repos/ameriglide/it-admin/commits?per_page=2" -ErrorAction Stop
+    $parentSha = $commits[1].sha.Substring(0, 7)
+    if ($Script:Revision -ne "dev" -and $parentSha -ne $Script:Revision) {
         Write-Host ""
-        Write-Host "  WARNING: You are running rev $Script:Revision but the latest is $latestSha" -ForegroundColor Red
+        Write-Host "  WARNING: You are running rev $Script:Revision but the latest is $parentSha" -ForegroundColor Red
         Write-Host "  Re-download the script to get the latest version." -ForegroundColor Red
         Write-Host ""
         $continue = Read-Host "  Press Enter to continue anyway, or Ctrl+C to abort"
@@ -101,7 +102,7 @@ try {
 $GcpwMsiUrl       = "https://dl.google.com/credentialprovider/GCPWStandaloneEnterprise64.msi"
 $GcpwMsiPath      = "$env:TEMP\GCPWStandaloneEnterprise64.msi"
 $GcpwRegPath      = "HKLM:\SOFTWARE\Google\GCPW"
-$EvMsiUrl         = "https://dl.google.com/endpoint-verification/latest/GoogleEndpointVerification.msi"
+$EvMsiUrl         = "https://dl.google.com/secureconnect/install/win/EndpointVerification_admin.msi"
 $EvMsiPath        = "$env:TEMP\EndpointVerification.msi"
 $BackupAdminUser  = "localadmin"
 $JcAgentPath      = "C:\Program Files\JumpCloud"
