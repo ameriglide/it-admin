@@ -15,14 +15,23 @@
 
     Skips anything already installed.
 
+.PARAMETER TailscaleAuthKey
+    Optional pre-auth key to auto-join the Tailscale network after install.
+    Generate one at your Headscale/Tailscale admin console.
+
 .EXAMPLE
     .\install-apps.ps1
+    .\install-apps.ps1 -TailscaleAuthKey "tskey-auth-abc123"
 #>
+
+param(
+    [string]$TailscaleAuthKey
+)
 
 $ErrorActionPreference = "Stop"
 $ProgressPreference = "SilentlyContinue"
 # Stamped by pre-commit hook -- do not edit manually
-$Script:Revision = "9b4ff0a"
+$Script:Revision = "cb546e8"
 
 Write-Host "install-apps.ps1 rev $Script:Revision" -ForegroundColor DarkGray
 
@@ -87,6 +96,33 @@ foreach ($app in $apps) {
         } else {
             Write-Warning "  $($app.Name) install failed (exit code $LASTEXITCODE)."
         }
+    }
+    Write-Host ""
+}
+
+# ---------------------------------------------------------------------------
+# Tailscale auth (if key provided)
+# ---------------------------------------------------------------------------
+if ($TailscaleAuthKey) {
+    Write-Host "Joining Tailscale network..." -ForegroundColor Yellow
+    $tsCmd = Get-Command tailscale -ErrorAction SilentlyContinue
+    if (-not $tsCmd) {
+        # Tailscale CLI might not be in PATH yet after fresh install
+        $tsPath = "C:\Program Files\Tailscale\tailscale.exe"
+        if (Test-Path $tsPath) { $tsCmd = $tsPath } else { $tsCmd = $null }
+    } else {
+        $tsCmd = $tsCmd.Path
+    }
+
+    if ($tsCmd) {
+        & $tsCmd up --login-server https://headscale.mage.net --auth-key $TailscaleAuthKey
+        if ($LASTEXITCODE -eq 0) {
+            Write-Host "  Joined Tailscale network." -ForegroundColor Green
+        } else {
+            Write-Warning "  Tailscale auth failed (exit code $LASTEXITCODE)."
+        }
+    } else {
+        Write-Warning "  Tailscale CLI not found. Install may require a reboot before auth."
     }
     Write-Host ""
 }
