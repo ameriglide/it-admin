@@ -29,7 +29,7 @@ param(
 $ErrorActionPreference = "Stop"
 $ProgressPreference = "SilentlyContinue"
 # Stamped by pre-commit hook -- do not edit manually
-$Script:Revision = "251b12d"
+$Script:Revision = "14acacd"
 
 Write-Host "install-apps.ps1 rev $Script:Revision" -ForegroundColor DarkGray
 
@@ -138,7 +138,7 @@ if ($zoiperInstalled) {
 } else {
     $zoiperExe = "$env:TEMP\Zoiper5_Installer.exe"
     Write-Host "  Downloading from GitHub..."
-    Invoke-WebRequest -Uri "https://github.com/ameriglide/it-admin/raw/main/installers/Zoiper5_Installer.exe" -OutFile $zoiperExe -UseBasicParsing
+    Invoke-WebRequest -Uri "https://drive.google.com/uc?export=download&id=1BBsKwSpOnc9xP8Hu3fuel05pJaWCGN13" -OutFile $zoiperExe -UseBasicParsing
     Write-Host "  Installing..."
     $process = Start-Process -FilePath $zoiperExe -ArgumentList "--mode unattended --unattendedmodeui none --zoiper_alluser_installation 1" -Wait -PassThru
     if ($process.ExitCode -eq 0) {
