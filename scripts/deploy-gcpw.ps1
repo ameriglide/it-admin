@@ -77,6 +77,23 @@ param(
 
 $ErrorActionPreference = "Stop"
 $ProgressPreference = "SilentlyContinue"
+$Script:Revision = "12ff295"
+
+Write-Host "deploy-gcpw.ps1 rev $Script:Revision" -ForegroundColor DarkGray
+
+# Check if this is the latest version
+try {
+    $latestSha = (Invoke-RestMethod -Uri "https://api.github.com/repos/ameriglide/it-admin/commits/main" -ErrorAction Stop).sha.Substring(0, 7)
+    if ($Script:Revision -ne "dev" -and $latestSha -ne $Script:Revision) {
+        Write-Host ""
+        Write-Host "  WARNING: You are running rev $Script:Revision but the latest is $latestSha" -ForegroundColor Red
+        Write-Host "  Re-download the script to get the latest version." -ForegroundColor Red
+        Write-Host ""
+        $continue = Read-Host "  Press Enter to continue anyway, or Ctrl+C to abort"
+    }
+} catch {
+    # Can't reach GitHub -- no big deal, just skip the check
+}
 
 # ---------------------------------------------------------------------------
 # Config
