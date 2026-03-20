@@ -19,7 +19,7 @@
 $ErrorActionPreference = "Stop"
 $ProgressPreference = "SilentlyContinue"
 # Stamped by pre-commit hook -- do not edit manually
-$Script:Revision = "7df60e9"
+$Script:Revision = "2196a33"
 
 Write-Host "install-apps.ps1 rev $Script:Revision" -ForegroundColor DarkGray
 
@@ -47,6 +47,13 @@ $winget = Get-Command winget -ErrorAction SilentlyContinue
 if (-not $winget) {
     Write-Error "winget is not available on this machine. Install App Installer from the Microsoft Store."
     exit 1
+}
+
+# Reset winget source on first run / fresh machines
+$testResult = winget search --id Microsoft.Edge --accept-source-agreements 2>&1
+if ($testResult -match "0x8a15000f|Data required by the source is missing") {
+    Write-Host "Initializing winget sources..." -ForegroundColor Yellow
+    winget source reset --force 2>&1 | Out-Null
 }
 
 Write-Host "Using winget $(winget --version)" -ForegroundColor DarkGray
