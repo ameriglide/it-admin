@@ -76,6 +76,7 @@ param(
 )
 
 $ErrorActionPreference = "Stop"
+$ProgressPreference = "SilentlyContinue"
 
 # ---------------------------------------------------------------------------
 # Config
