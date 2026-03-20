@@ -36,3 +36,13 @@ Reboot, verify Google login works and existing profile is intact, then:
 - Enable GCPW in Google Admin Console: **Devices > Mobile & endpoints > Settings > Windows > GCPW settings**
 - Windows 10 or 11
 - PowerShell run as Administrator
+
+## Standard App Installer
+
+Installs Chrome, Adobe Acrobat Reader DC (no McAfee), Zoiper 5 Free, and Slack. Skips anything already installed.
+
+```powershell
+Set-ExecutionPolicy Bypass -Scope Process -Force; irm https://raw.githubusercontent.com/ameriglide/it-admin/main/scripts/install-apps.ps1 -OutFile $env:TEMP\install-apps.ps1; & $env:TEMP\install-apps.ps1
+```
+
+> **Note:** The Adobe Reader download URL includes a version number that changes with updates. If the download fails, grab the latest enterprise installer manually from https://get.adobe.com/reader/enterprise/

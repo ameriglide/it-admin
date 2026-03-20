@@ -3,7 +3,9 @@
 # Stamp scripts with the current HEAD short rev (parent of the new commit)
 REV=$(git rev-parse --short HEAD)
 
-if grep -q 'Script:Revision' scripts/deploy-gcpw.ps1; then
-  sed -i '' "s/\$Script:Revision = \".*\"/\$Script:Revision = \"$REV\"/" scripts/deploy-gcpw.ps1
-  git add scripts/deploy-gcpw.ps1
-fi
+for script in scripts/*.ps1; do
+  if grep -q 'Script:Revision' "$script"; then
+    sed -i '' "s/\$Script:Revision = \".*\"/\$Script:Revision = \"$REV\"/" "$script"
+    git add "$script"
+  fi
+done
