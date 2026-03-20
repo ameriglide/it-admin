@@ -18,17 +18,17 @@
 
 $ErrorActionPreference = "Stop"
 $ProgressPreference = "SilentlyContinue"
-$Script:Revision = "7cdbfc4"
+$Script:Revision = "ca0b5fc"
 
 Write-Host "install-apps.ps1 rev $Script:Revision" -ForegroundColor DarkGray
 
 # Check if this is the latest version
 try {
-    $commits = Invoke-RestMethod -Uri "https://api.github.com/repos/ameriglide/it-admin/commits?per_page=2" -ErrorAction Stop
-    $parentSha = $commits[1].sha.Substring(0, 7)
-    if ($Script:Revision -ne "dev" -and $parentSha -ne $Script:Revision) {
+    $commits = Invoke-RestMethod -Uri "https://api.github.com/repos/ameriglide/it-admin/commits?path=scripts/install-apps.ps1&per_page=1" -ErrorAction Stop
+    $latestSha = $commits[0].sha.Substring(0, 7)
+    if ($Script:Revision -ne "dev" -and $latestSha -ne $Script:Revision) {
         Write-Host ""
-        Write-Host "  WARNING: You are running rev $Script:Revision but the latest is $parentSha" -ForegroundColor Red
+        Write-Host "  WARNING: You are running rev $Script:Revision but the latest is $latestSha" -ForegroundColor Red
         Write-Host "  Re-download the script to get the latest version." -ForegroundColor Red
         Write-Host ""
         $continue = Read-Host "  Press Enter to continue anyway, or Ctrl+C to abort"
