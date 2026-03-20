@@ -38,11 +38,11 @@ Write-Host "<name>.ps1 rev $Script:Revision" -ForegroundColor DarkGray
 
 # Check if this is the latest version
 try {
-    $commits = Invoke-RestMethod -Uri "https://api.github.com/repos/ameriglide/it-admin/commits?path=scripts/<name>.ps1&per_page=1" -ErrorAction Stop
-    $latestSha = $commits[0].sha.Substring(0, 7)
-    if ($Script:Revision -ne "dev" -and $latestSha -ne $Script:Revision) {
+    $commits = Invoke-RestMethod -Uri "https://api.github.com/repos/ameriglide/it-admin/commits?path=scripts/<name>.ps1&per_page=2" -ErrorAction Stop
+    $knownRevs = $commits | ForEach-Object { $_.sha.Substring(0, 7) }
+    if ($Script:Revision -ne "dev" -and $Script:Revision -notin $knownRevs) {
         Write-Host ""
-        Write-Host "  WARNING: You are running rev $Script:Revision but the latest is $latestSha" -ForegroundColor Red
+        Write-Host "  WARNING: You are running rev $Script:Revision but the latest is $($knownRevs[0])" -ForegroundColor Red
         Write-Host "  Re-download the script to get the latest version." -ForegroundColor Red
         Write-Host ""
         $continue = Read-Host "  Press Enter to continue anyway, or Ctrl+C to abort"
