@@ -77,7 +77,8 @@ param(
 
 $ErrorActionPreference = "Stop"
 $ProgressPreference = "SilentlyContinue"
-$Script:Revision = "5b12b12"
+# Stamped by pre-commit hook -- do not edit manually
+$Script:Revision = "7df60e9"
 
 Write-Host "deploy-gcpw.ps1 rev $Script:Revision" -ForegroundColor DarkGray
 
