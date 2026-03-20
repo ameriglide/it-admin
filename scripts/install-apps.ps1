@@ -29,7 +29,7 @@ param(
 $ErrorActionPreference = "Stop"
 $ProgressPreference = "SilentlyContinue"
 # Stamped by pre-commit hook -- do not edit manually
-$Script:Revision = "b065524"
+$Script:Revision = "d37b7db"
 
 Write-Host "install-apps.ps1 rev $Script:Revision" -ForegroundColor DarkGray
 
@@ -92,7 +92,7 @@ foreach ($app in $apps) {
     if ($installed) {
         Write-Host "  Already installed. Skipping." -ForegroundColor Green
     } else {
-        choco install $app.Id -y --no-progress
+        choco install $app.Id -y
         if ($LASTEXITCODE -eq 0) {
             Write-Host "  $($app.Name) installed." -ForegroundColor Green
         } else {
