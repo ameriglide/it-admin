@@ -29,7 +29,7 @@ param(
 $ErrorActionPreference = "Stop"
 $ProgressPreference = "SilentlyContinue"
 # Stamped by pre-commit hook -- do not edit manually
-$Script:Revision = "70b15be"
+$Script:Revision = "4ee164d"
 
 Write-Host "install-apps.ps1 rev $Script:Revision" -ForegroundColor DarkGray
 
@@ -106,6 +106,8 @@ foreach ($app in $apps) {
 # ---------------------------------------------------------------------------
 if ($TailscaleAuthKey) {
     Write-Host "Joining Tailscale network..." -ForegroundColor Yellow
+    # Refresh PATH so freshly-installed Tailscale CLI is discoverable
+    $env:Path = [System.Environment]::GetEnvironmentVariable("Path", "Machine") + ";" + [System.Environment]::GetEnvironmentVariable("Path", "User")
     $tsCmd = Get-Command tailscale -ErrorAction SilentlyContinue
     if (-not $tsCmd) {
         $tsPath = "C:\Program Files\Tailscale\tailscale.exe"
