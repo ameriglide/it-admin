@@ -31,6 +31,14 @@ Reboot, verify Google login works and existing profile is intact, then:
 & $env:TEMP\deploy-gcpw.ps1 -Phase 2
 ```
 
+### Repair (GCPW installed but no Google tile on login)
+
+If the script ran successfully but the Google login option doesn't appear on the sign-in screen, do a clean reinstall:
+
+```powershell
+Set-ExecutionPolicy Bypass -Scope Process -Force; irm https://raw.githubusercontent.com/ameriglide/it-admin/main/scripts/repair-gcpw.ps1 -OutFile $env:TEMP\repair-gcpw.ps1; & $env:TEMP\repair-gcpw.ps1 -Domain ameriglide.com
+```
+
 ### Prerequisites
 
 - Enable GCPW in Google Admin Console: **Devices > Mobile & endpoints > Settings > Windows > GCPW settings**
