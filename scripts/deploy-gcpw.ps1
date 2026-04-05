@@ -78,9 +78,14 @@ param(
 $ErrorActionPreference = "Stop"
 $ProgressPreference = "SilentlyContinue"
 # Stamped by pre-commit hook -- do not edit manually
-$Script:Revision = "7df60e9"
+$Script:Revision = "2196a33"
 
 Write-Host "deploy-gcpw.ps1 rev $Script:Revision" -ForegroundColor DarkGray
+
+# Surface the OS build at the top so it lands in any copy/pasted output.
+# Windows 11 shows up as "Windows 10 Pro" in ProductName (MS quirk), so rely on build number.
+$osInfo = Get-ItemProperty "HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion"
+Write-Host "Windows build: $($osInfo.DisplayVersion) $($osInfo.CurrentBuild).$($osInfo.UBR)" -ForegroundColor DarkGray
 
 # Check if this is the latest version
 try {
@@ -107,13 +112,62 @@ $EvMsiUrl         = "https://dl.google.com/secureconnect/install/win/EndpointVer
 $EvMsiPath        = "$env:TEMP\EndpointVerification.msi"
 $BackupAdminUser  = "localadmin"
 $GcpwClsid        = "HKCR:\CLSID\{0B5BFDF0-4594-47AC-940A-CFC69ABC561C}"
+$GcpwProviderGuid = "{0B5BFDF0-4594-47AC-940A-CFC69ABC561C}"
+$GcpwProviderReg  = "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Authentication\Credential Providers\$GcpwProviderGuid"
+$WebView2Reg      = "HKLM:\SOFTWARE\WOW6432Node\Microsoft\EdgeUpdate\Clients\{F3017226-FE2A-4295-8BDF-00C3A9A7E4C5}"
+$WebView2Url      = "https://go.microsoft.com/fwlink/p/?LinkId=2124703"
+$WebView2Path     = "$env:TEMP\MicrosoftEdgeWebview2Setup.exe"
 $JcAgentPath      = "C:\Program Files\JumpCloud"
 $JcUninstaller    = "C:\Program Files\JumpCloud\Uninstall.exe"
 
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
+# Wait for Windows Update / servicing to stop racing us on the Windows Installer.
+# We observed MSI installs returning exit code 0 while leaving payload half-extracted
+# when TrustedInstaller/WU was active during install.
+function Wait-ForServicingIdle {
+    param([int]$TimeoutSeconds = 300)
+    $deadline = (Get-Date).AddSeconds($TimeoutSeconds)
+    $announced = $false
+    while ((Get-Date) -lt $deadline) {
+        $busy = Get-Process -Name TiWorker, TrustedInstaller, msiexec -ErrorAction SilentlyContinue |
+                Where-Object { $_.Id -ne $PID }
+        if (-not $busy) { return }
+        if (-not $announced) {
+            Write-Host "  Waiting for Windows servicing to finish ($($busy.Name -join ', '))..." -ForegroundColor DarkGray
+            $announced = $true
+        }
+        Start-Sleep -Seconds 5
+    }
+    Write-Warning "  Servicing still busy after $TimeoutSeconds seconds. Proceeding anyway."
+}
+
+function Install-WebView2 {
+    # GCPW uses WebView2 to render the Google sign-in UI in LogonUI.
+    # If it's missing, the credential provider loads but has nothing to draw with
+    # and the tile silently fails to appear.
+    $wv = Get-ItemProperty $WebView2Reg -ErrorAction SilentlyContinue
+    if ($wv -and $wv.pv) {
+        Write-Host "  WebView2 runtime already installed (version $($wv.pv))." -ForegroundColor Green
+        return
+    }
+    Write-Host "  WebView2 runtime not found. Installing..."
+    [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
+    Invoke-WebRequest -Uri $WebView2Url -OutFile $WebView2Path -UseBasicParsing
+    $process = Start-Process -FilePath $WebView2Path -ArgumentList "/silent /install" -Wait -PassThru
+    if ($process.ExitCode -ne 0) {
+        Write-Warning "  WebView2 install returned exit code $($process.ExitCode). GCPW tile may not render."
+    } else {
+        Write-Host "  WebView2 installed." -ForegroundColor Green
+    }
+}
+
 function Install-GCPW {
+    Install-WebView2
+    Wait-ForServicingIdle
+
     $gcpwInstalled = Get-WmiObject Win32_Product -Filter "Name LIKE '%Google Credential Provider%'" -ErrorAction SilentlyContinue
     if ($gcpwInstalled) {
         Write-Host "  GCPW already installed (version $($gcpwInstalled.Version))." -ForegroundColor Green
@@ -122,37 +176,86 @@ function Install-GCPW {
         Write-Host "  Downloading GCPW..."
         Invoke-WebRequest -Uri $GcpwMsiUrl -OutFile $GcpwMsiPath -UseBasicParsing
 
-        Write-Host "  Installing..."
-        $process = Start-Process msiexec.exe -ArgumentList "/i `"$GcpwMsiPath`" /quiet /norestart" -Wait -PassThru
+        $msiLog = "$env:TEMP\gcpw_install.log"
+        Write-Host "  Installing (log: $msiLog)..."
+        $process = Start-Process msiexec.exe -ArgumentList "/i `"$GcpwMsiPath`" /quiet /norestart /l*v `"$msiLog`"" -Wait -PassThru
         if ($process.ExitCode -ne 0) {
-            Write-Error "GCPW installation failed with exit code $($process.ExitCode)"
+            Write-Error "GCPW installation failed with exit code $($process.ExitCode). See $msiLog"
             exit 1
         }
     }
 
-    # Verify the credential provider DLL was actually extracted
     # Map HKCR since PowerShell doesn't mount it by default
     if (-not (Test-Path "HKCR:\")) {
         New-PSDrive -Name HKCR -PSProvider Registry -Root HKEY_CLASSES_ROOT -ErrorAction SilentlyContinue | Out-Null
     }
+
+    # Verify both the COM CLSID and the credential-provider registration.
+    # The CLSID alone is not sufficient -- winlogon reads the provider list from
+    # HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\Authentication\Credential Providers\{GUID}.
+    $needReinstall = $false
     $clsidEntry = Get-ItemProperty "$GcpwClsid\InprocServer32" -ErrorAction SilentlyContinue
     if (-not $clsidEntry -or -not (Test-Path $clsidEntry.'(default)')) {
-        Write-Warning "  GCPW installed but DLL not found. Attempting reinstall..."
-        $process = Start-Process msiexec.exe -ArgumentList "/x `"$GcpwMsiPath`" /quiet /norestart" -Wait -PassThru
+        Write-Warning "  GCPW CLSID or DLL missing."
+        $needReinstall = $true
+    }
+    if (-not (Test-Path $GcpwProviderReg)) {
+        Write-Warning "  GCPW not registered under Authentication\Credential Providers."
+        $needReinstall = $true
+    }
+
+    if ($needReinstall) {
+        Write-Warning "  Attempting clean reinstall..."
+        Start-Process msiexec.exe -ArgumentList "/x `"$GcpwMsiPath`" /quiet /norestart" -Wait | Out-Null
         Start-Sleep 3
-        $process = Start-Process msiexec.exe -ArgumentList "/i `"$GcpwMsiPath`" /quiet /norestart" -Wait -PassThru
+        Wait-ForServicingIdle
+        $msiLog = "$env:TEMP\gcpw_install.log"
+        $process = Start-Process msiexec.exe -ArgumentList "/i `"$GcpwMsiPath`" /quiet /norestart /l*v `"$msiLog`"" -Wait -PassThru
         if ($process.ExitCode -ne 0) {
-            Write-Error "GCPW reinstall failed with exit code $($process.ExitCode)"
+            Write-Error "GCPW reinstall failed with exit code $($process.ExitCode). See $msiLog"
             exit 1
         }
-        # Check again
         $clsidEntry = Get-ItemProperty "$GcpwClsid\InprocServer32" -ErrorAction SilentlyContinue
-        if (-not $clsidEntry -or -not (Test-Path $clsidEntry.'(default)')) {
-            Write-Error "GCPW DLL still missing after reinstall. Check $env:TEMP\gcpw_install.log for details."
+        if (-not $clsidEntry -or -not (Test-Path $clsidEntry.'(default)') -or -not (Test-Path $GcpwProviderReg)) {
+            Write-Error "GCPW registration still incomplete after reinstall. See $msiLog"
             exit 1
         }
     }
-    Write-Host "  GCPW installed and verified." -ForegroundColor Green
+    Write-Host "  GCPW installed and verified (CLSID + provider registration)." -ForegroundColor Green
+
+    # Critical: the MSI completes install but doesn't run post-install initialization.
+    # Without this, winlogon silently refuses to load gaia1_0.dll and the Google tile
+    # never appears on the lock screen despite everything being registered correctly.
+    # Kicking the GoogleUpdater scheduled task completes whatever state GCPW needs.
+    $updaterTasks = Get-ScheduledTask -TaskPath "\GoogleUpdater\" -ErrorAction SilentlyContinue
+    if ($updaterTasks) {
+        Write-Host "  Triggering GoogleUpdater to finalize GCPW initialization..."
+        foreach ($task in $updaterTasks) {
+            try {
+                Start-ScheduledTask -TaskPath $task.TaskPath -TaskName $task.TaskName -ErrorAction Stop
+                Write-Host "    Started $($task.TaskName)" -ForegroundColor DarkGray
+            } catch {
+                Write-Warning "    Failed to start $($task.TaskName): $_"
+            }
+        }
+        Start-Sleep -Seconds 5
+    } else {
+        Write-Warning "  No GoogleUpdater tasks found. GCPW tile may not render until updater runs."
+    }
+}
+
+# Win11's "passwordless sign-in" feature hides password-based credential providers
+# (including GCPW) from the lock screen. Disable it so the Google tile can show.
+function Disable-PasswordlessSignin {
+    $key = "HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\PasswordLess\Device"
+    if (-not (Test-Path $key)) {
+        New-Item -Path $key -Force | Out-Null
+    }
+    $current = (Get-ItemProperty $key -Name "DevicePasswordLessBuildVersion" -ErrorAction SilentlyContinue).DevicePasswordLessBuildVersion
+    if ($current -ne 0) {
+        Set-ItemProperty -Path $key -Name "DevicePasswordLessBuildVersion" -Value 0 -Type DWord
+        Write-Host "  Disabled Win11 passwordless sign-in requirement (was $current)." -ForegroundColor Yellow
+    }
 }
 
 # ============================================================================
@@ -235,6 +338,8 @@ if ($NewMachine) {
 
     Set-ItemProperty -Path $GcpwRegPath -Name "enable_multi_user_login" -Value 1 -Type DWord
     Write-Host "  Set enable_multi_user_login = 1"
+
+    Disable-PasswordlessSignin
 
     # If a Google email was provided, pre-associate with current user profile
     if ($GoogleEmail -and $env:USERNAME -ne "SYSTEM") {
@@ -397,6 +502,8 @@ if ($Phase -eq 1) {
     # Allow multiple users on same machine
     Set-ItemProperty -Path $GcpwRegPath -Name "enable_multi_user_login" -Value 1 -Type DWord
     Write-Host "  Set enable_multi_user_login = 1"
+
+    Disable-PasswordlessSignin
 
     # Associate existing profile with Google account
     $assocRegPath = "$GcpwRegPath\Users\$sid"

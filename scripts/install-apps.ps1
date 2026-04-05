@@ -14,11 +14,11 @@
     Installs Chocolatey if not already present. Skips anything already installed.
 
 .PARAMETER TailscaleAuthKey
-    Optional pre-auth key to auto-join the Tailscale network after install.
+    Pre-auth key used to join the Tailscale network after install. Required.
+    If not passed as a parameter, the script will prompt for it.
     Generate one at your Headscale/Tailscale admin console.
 
 .EXAMPLE
-    .\install-apps.ps1
     .\install-apps.ps1 -TailscaleAuthKey "tskey-auth-abc123"
 #>
 
@@ -26,10 +26,18 @@ param(
     [string]$TailscaleAuthKey
 )
 
+if (-not $TailscaleAuthKey) {
+    $TailscaleAuthKey = Read-Host "Tailscale auth key (tskey-auth-...)"
+}
+if (-not $TailscaleAuthKey) {
+    Write-Error "Tailscale auth key is required. Generate one at your Headscale admin console and re-run."
+    exit 1
+}
+
 $ErrorActionPreference = "Stop"
 $ProgressPreference = "SilentlyContinue"
 # Stamped by pre-commit hook -- do not edit manually
-$Script:Revision = "4ee164d"
+$Script:Revision = "2778d17"
 
 Write-Host "install-apps.ps1 rev $Script:Revision" -ForegroundColor DarkGray
 
@@ -102,32 +110,30 @@ foreach ($app in $apps) {
 }
 
 # ---------------------------------------------------------------------------
-# Tailscale auth (if key provided)
+# Tailscale auth
 # ---------------------------------------------------------------------------
-if ($TailscaleAuthKey) {
-    Write-Host "Joining Tailscale network..." -ForegroundColor Yellow
-    # Refresh PATH so freshly-installed Tailscale CLI is discoverable
-    $env:Path = [System.Environment]::GetEnvironmentVariable("Path", "Machine") + ";" + [System.Environment]::GetEnvironmentVariable("Path", "User")
-    $tsCmd = Get-Command tailscale -ErrorAction SilentlyContinue
-    if (-not $tsCmd) {
-        $tsPath = "C:\Program Files\Tailscale\tailscale.exe"
-        if (Test-Path $tsPath) { $tsCmd = $tsPath } else { $tsCmd = $null }
-    } else {
-        $tsCmd = $tsCmd.Path
-    }
-
-    if ($tsCmd) {
-        & $tsCmd up --login-server https://headscale.mage.net --auth-key $TailscaleAuthKey --unattended --timeout 30s
-        if ($LASTEXITCODE -eq 0) {
-            Write-Host "  Joined Tailscale network." -ForegroundColor Green
-        } else {
-            Write-Warning "  Tailscale auth failed (exit code $LASTEXITCODE)."
-        }
-    } else {
-        Write-Warning "  Tailscale CLI not found. May require a reboot before auth."
-    }
-    Write-Host ""
+Write-Host "Joining Tailscale network..." -ForegroundColor Yellow
+# Refresh PATH so freshly-installed Tailscale CLI is discoverable
+$env:Path = [System.Environment]::GetEnvironmentVariable("Path", "Machine") + ";" + [System.Environment]::GetEnvironmentVariable("Path", "User")
+$tsCmd = Get-Command tailscale -ErrorAction SilentlyContinue
+if (-not $tsCmd) {
+    $tsPath = "C:\Program Files\Tailscale\tailscale.exe"
+    if (Test-Path $tsPath) { $tsCmd = $tsPath } else { $tsCmd = $null }
+} else {
+    $tsCmd = $tsCmd.Path
 }
+
+if ($tsCmd) {
+    & $tsCmd up --login-server https://headscale.mage.net --auth-key $TailscaleAuthKey --unattended --timeout 30s
+    if ($LASTEXITCODE -eq 0) {
+        Write-Host "  Joined Tailscale network." -ForegroundColor Green
+    } else {
+        Write-Warning "  Tailscale auth failed (exit code $LASTEXITCODE)."
+    }
+} else {
+    Write-Warning "  Tailscale CLI not found. May require a reboot before auth."
+}
+Write-Host ""
 
 # ---------------------------------------------------------------------------
 # Zoiper 5 (hosted in repo -- not available on winget or choco reliably)

@@ -93,6 +93,25 @@ if ($clsid) {
     Write-Warning "  CLSID not registered. GCPW may not show on login screen."
 }
 
+# Kick GoogleUpdater -- required for GCPW tile to actually render on the lock screen.
+# The MSI install completes but post-install initialization is done by the updater task.
+$updaterTasks = Get-ScheduledTask -TaskPath "\GoogleUpdater\" -ErrorAction SilentlyContinue
+if ($updaterTasks) {
+    Write-Host ""
+    Write-Host "Triggering GoogleUpdater to finalize GCPW initialization..." -ForegroundColor Yellow
+    foreach ($task in $updaterTasks) {
+        try {
+            Start-ScheduledTask -TaskPath $task.TaskPath -TaskName $task.TaskName -ErrorAction Stop
+            Write-Host "  Started $($task.TaskName)" -ForegroundColor DarkGray
+        } catch {
+            Write-Warning "  Failed to start $($task.TaskName): $_"
+        }
+    }
+    Start-Sleep -Seconds 5
+} else {
+    Write-Warning "No GoogleUpdater tasks found. GCPW tile may not render until updater runs."
+}
+
 Write-Host ""
 Write-Host "========================================" -ForegroundColor Green
 Write-Host "  Repair complete! Reboot to test." -ForegroundColor Green

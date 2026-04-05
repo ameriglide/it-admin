@@ -47,10 +47,12 @@ Set-ExecutionPolicy Bypass -Scope Process -Force; irm https://raw.githubusercont
 
 ## Standard App Installer
 
-Installs Chrome, Adobe Acrobat Reader DC (no McAfee), Zoiper 5 Free, and Slack. Skips anything already installed.
+Installs Chrome, Adobe Acrobat Reader DC, Slack, Tailscale, Google Drive, and Zoiper 5 Free via Chocolatey. Skips anything already installed. Also joins the Tailscale/Headscale network using the provided auth key.
+
+Generate a pre-auth key from your Headscale admin console first, then:
 
 ```powershell
-Set-ExecutionPolicy Bypass -Scope Process -Force; irm https://raw.githubusercontent.com/ameriglide/it-admin/main/scripts/install-apps.ps1 -OutFile $env:TEMP\install-apps.ps1; & $env:TEMP\install-apps.ps1
+Set-ExecutionPolicy Bypass -Scope Process -Force; irm https://raw.githubusercontent.com/ameriglide/it-admin/main/scripts/install-apps.ps1 -OutFile $env:TEMP\install-apps.ps1; & $env:TEMP\install-apps.ps1 -TailscaleAuthKey "tskey-auth-..."
 ```
 
-> **Note:** The Adobe Reader download URL includes a version number that changes with updates. If the download fails, grab the latest enterprise installer manually from https://get.adobe.com/reader/enterprise/
+If you omit `-TailscaleAuthKey`, the script will prompt for it and refuse to continue without one.
