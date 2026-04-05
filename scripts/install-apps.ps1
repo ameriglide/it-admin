@@ -37,7 +37,7 @@ if (-not $TailscaleAuthKey) {
 $ErrorActionPreference = "Stop"
 $ProgressPreference = "SilentlyContinue"
 # Stamped by pre-commit hook -- do not edit manually
-$Script:Revision = "032d265"
+$Script:Revision = "d4dcc8f"
 
 Write-Host "install-apps.ps1 rev $Script:Revision" -ForegroundColor DarkGray
 
@@ -176,6 +176,109 @@ if ($zoiperInstalled) {
         Write-Warning "  Zoiper 5 install failed (exit code $($process.ExitCode))."
     }
 }
+Write-Host ""
+
+# ---------------------------------------------------------------------------
+# Slack auto-start pointed at ag-atlas workspace
+# ---------------------------------------------------------------------------
+Write-Host "Slack startup config..." -ForegroundColor Yellow
+
+$slackExe = Get-ChildItem "C:\Program Files\Slack","C:\Program Files (x86)\Slack" -Filter "slack.exe" -Recurse -ErrorAction SilentlyContinue | Select-Object -First 1
+if ($slackExe) {
+    Set-ItemProperty "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Run" -Name "Slack" `
+        -Value "`"$($slackExe.FullName)`" --url `"slack://open?domain=ag-atlas`"" -Type String
+    Write-Host "  Slack will auto-start at login (ag-atlas workspace)." -ForegroundColor Green
+} else {
+    Write-Warning "  Slack executable not found. Auto-start not configured."
+}
+Write-Host ""
+
+# ---------------------------------------------------------------------------
+# Chrome bookmarks and settings (via managed policy + initial_preferences)
+# ---------------------------------------------------------------------------
+Write-Host "Chrome bookmarks & settings..." -ForegroundColor Yellow
+
+# 1. Bookmarks bar: always visible
+$chromePolicies = "HKLM:\SOFTWARE\Policies\Google\Chrome"
+if (-not (Test-Path $chromePolicies)) {
+    New-Item -Path $chromePolicies -Force | Out-Null
+}
+Set-ItemProperty -Path $chromePolicies -Name "BookmarkBarEnabled" -Value 1 -Type DWord
+Write-Host "  Bookmarks bar enabled."
+
+# 2. Managed bookmarks (all users, persists across Chrome resets).
+#    javascript: URLs are blocked here so the Quote Me bookmarklet goes
+#    through initial_preferences instead.
+$managedBookmarks = @(
+    @{ toplevel_name = "Company" }
+    @{
+        name = "AmeriGlide"
+        children = @(
+            @{ name = "Website";    url = "https://www.ameriglide.com" }
+            @{ name = "Phenix CRM"; url = "https://phenix.ameriglide.com" }
+            @{ name = "Remix CRM";  url = "https://remix.ameriglide.com" }
+            @{ name = "Base";       url = "https://base.inetalliance.net" }
+        )
+    }
+    @{
+        name = "Google"
+        children = @(
+            @{ name = "Gmail";    url = "https://mail.google.com" }
+            @{ name = "Calendar"; url = "https://calendar.google.com" }
+            @{ name = "Drive";    url = "https://drive.google.com" }
+            @{ name = "Docs";     url = "https://docs.google.com" }
+            @{ name = "Sheets";   url = "https://sheets.google.com" }
+            @{ name = "Meet";     url = "https://meet.google.com" }
+        )
+    }
+    @{
+        name = "HR & Benefits"
+        children = @(
+            @{ name = "ADP (Payroll / PTO)"; url = "https://my.adp.com" }
+            @{ name = "401k";                url = "https://mykplan.com" }
+        )
+    }
+) | ConvertTo-Json -Depth 4 -Compress
+
+Set-ItemProperty -Path $chromePolicies -Name "ManagedBookmarks" -Value $managedBookmarks -Type String
+Write-Host "  Managed bookmarks configured."
+
+# 3. initial_preferences: seed the Quote Me bookmarklet (javascript: URL)
+#    via an HTML bookmarks import. Chrome reads this on first profile creation.
+$chromePath = "C:\Program Files\Google\Chrome\Application"
+if (Test-Path $chromePath) {
+    $bookmarksHtml = @"
+<!DOCTYPE NETSCAPE-Bookmark-file-1>
+<META HTTP-EQUIV="Content-Type" CONTENT="text/html; charset=UTF-8">
+<TITLE>Bookmarks</TITLE>
+<H1>Bookmarks</H1>
+<DL><p>
+    <DT><A HREF="javascript:createQuote()">Quote Me</A>
+</DL><p>
+"@
+    $importPath = "$chromePath\bookmarks.html"
+    Set-Content -Path $importPath -Value $bookmarksHtml -Encoding UTF8
+
+    $initialPrefs = @{
+        distribution = @{
+            import_bookmarks_from_file = $importPath
+            import_bookmarks = $true
+            show_bookmarks_bar = $true
+        }
+        browser = @{
+            show_bookmarks_bar = $true
+        }
+        bookmark_bar = @{
+            show_on_all_tabs = $true
+        }
+    } | ConvertTo-Json -Depth 3
+    Set-Content -Path "$chromePath\initial_preferences" -Value $initialPrefs -Encoding UTF8
+    Write-Host "  Quote Me bookmarklet seeded via initial_preferences."
+} else {
+    Write-Warning "  Chrome not found at $chromePath. Skipping initial_preferences."
+}
+
+Write-Host "  Done." -ForegroundColor Green
 Write-Host ""
 
 Write-Host "========================================" -ForegroundColor Green
