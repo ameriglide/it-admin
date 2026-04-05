@@ -37,7 +37,7 @@ if (-not $TailscaleAuthKey) {
 $ErrorActionPreference = "Stop"
 $ProgressPreference = "SilentlyContinue"
 # Stamped by pre-commit hook -- do not edit manually
-$Script:Revision = "2778d17"
+$Script:Revision = "032d265"
 
 Write-Host "install-apps.ps1 rev $Script:Revision" -ForegroundColor DarkGray
 
@@ -99,9 +99,30 @@ foreach ($app in $apps) {
     if ($installed) {
         Write-Host "  Already installed. Skipping." -ForegroundColor Green
     } else {
-        choco install $app.Id -y --ignore-checksums
+        choco install $app.Id -y
         if ($LASTEXITCODE -eq 0) {
             Write-Host "  $($app.Name) installed." -ForegroundColor Green
+        } elseif ($LASTEXITCODE -eq 1) {
+            # Check if this was a checksum failure
+            $chocoLog = Get-Content "$env:ChocolateyInstall\logs\chocolatey.log" -Tail 50 -ErrorAction SilentlyContinue
+            $checksumFail = $chocoLog | Select-String -Pattern "checksum|hash" -Quiet
+            if ($checksumFail) {
+                Write-Warning "  $($app.Name) failed due to a checksum mismatch."
+                Write-Host "  This can happen when the vendor updates the download without updating the package." -ForegroundColor DarkGray
+                $retry = Read-Host "  Retry with checksum verification disabled? (y/N)"
+                if ($retry -eq 'y') {
+                    choco install $app.Id -y --ignore-checksums
+                    if ($LASTEXITCODE -eq 0) {
+                        Write-Host "  $($app.Name) installed (checksum skipped)." -ForegroundColor Green
+                    } else {
+                        Write-Warning "  $($app.Name) still failed (exit code $LASTEXITCODE)."
+                    }
+                } else {
+                    Write-Warning "  Skipped $($app.Name)."
+                }
+            } else {
+                Write-Warning "  $($app.Name) install failed (exit code $LASTEXITCODE)."
+            }
         } else {
             Write-Warning "  $($app.Name) install failed (exit code $LASTEXITCODE)."
         }
