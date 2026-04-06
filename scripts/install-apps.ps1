@@ -37,7 +37,7 @@ if (-not $TailscaleAuthKey) {
 $ErrorActionPreference = "Stop"
 $ProgressPreference = "SilentlyContinue"
 # Stamped by pre-commit hook -- do not edit manually
-$Script:Revision = "d4dcc8f"
+$Script:Revision = "41b8e16"
 
 Write-Host "install-apps.ps1 rev $Script:Revision" -ForegroundColor DarkGray
 
@@ -204,7 +204,17 @@ if (-not (Test-Path $chromePolicies)) {
     New-Item -Path $chromePolicies -Force | Out-Null
 }
 Set-ItemProperty -Path $chromePolicies -Name "BookmarkBarEnabled" -Value 1 -Type DWord
+Set-ItemProperty -Path $chromePolicies -Name "DefaultBrowserSettingEnabled" -Value 1 -Type DWord
 Write-Host "  Bookmarks bar enabled."
+Write-Host "  Chrome will prompt to be set as default browser."
+
+# Auto-start Chrome to Phenix CRM on login
+$chromeExe = "C:\Program Files\Google\Chrome\Application\chrome.exe"
+if (Test-Path $chromeExe) {
+    Set-ItemProperty "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Run" -Name "Chrome" `
+        -Value "`"$chromeExe`" https://phenix.ameriglide.com" -Type String
+    Write-Host "  Chrome will auto-start at login (phenix.ameriglide.com)."
+}
 
 # 2. Managed bookmarks (all users, persists across Chrome resets).
 #    javascript: URLs are blocked here so the Quote Me bookmarklet goes
