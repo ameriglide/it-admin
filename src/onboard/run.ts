@@ -1,11 +1,13 @@
 import type { Context, Step } from "./types";
 import { googleStep } from "./steps/google";
 import { amberjackStep } from "./steps/amberjack";
+import { phenixStep } from "./steps/phenix";
 
 export async function run(ctx: Context): Promise<void> {
   const steps: Step[] = [
     googleStep,
     amberjackStep,
+    phenixStep,
   ];
 
   for (const step of steps) {
