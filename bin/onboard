@@ -2,6 +2,7 @@
 
 import { parseArgs } from "util";
 import { run } from "../src/onboard/run";
+import { input } from "../src/onboard/lib/prompt";
 import type { Context } from "../src/onboard/types";
 
 const { values } = parseArgs({
@@ -14,11 +15,10 @@ const { values } = parseArgs({
   strict: true,
 });
 
-// If --direct-line was not passed at all, set to undefined (will prompt)
 const directLine = Bun.argv.includes("--direct-line") ? true : undefined;
 
-const firstName = values.first ?? (await prompt("First name"));
-const lastName = values.last ?? (await prompt("Last name"));
+const firstName = values.first ?? (await input("First name"));
+const lastName = values.last ?? (await input("Last name"));
 
 if (!firstName || !lastName) {
   console.error("First and last name are required.");
@@ -27,17 +27,8 @@ if (!firstName || !lastName) {
 
 const email = `${firstName.toLowerCase()}.${lastName.toLowerCase()}@ameriglide.com`;
 
+console.log(`\nOnboarding ${firstName} ${lastName} (${email})\n`);
+
 const ctx: Context = { firstName, lastName, email, directLine };
 
 await run(ctx);
-
-async function prompt(label: string): Promise<string> {
-  // Placeholder — will use gum in lib/prompt.ts
-  const proc = Bun.spawn(["gum", "input", "--placeholder", label, "--prompt", `${label}: `], {
-    stdin: "inherit",
-    stdout: "pipe",
-    stderr: "inherit",
-  });
-  const text = await new Response(proc.stdout).text();
-  return text.trim();
-}

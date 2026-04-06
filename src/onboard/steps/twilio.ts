@@ -5,7 +5,6 @@ import { generateSipPassword } from "../lib/password";
 import {
   findWorkerByEmail,
   createWorker,
-  updateWorkerAttributes,
   findCredentialByUsername,
   createCredential,
 } from "../lib/twilio";
