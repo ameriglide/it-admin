@@ -12,5 +12,9 @@
   },
   "scripts": {
     "prepare": "husky"
+  },
+  "dependencies": {
+    "googleapis": "^171.4.0",
+    "postgres": "^3.4.9"
   }
 }
