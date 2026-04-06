@@ -37,7 +37,7 @@ if (-not $TailscaleAuthKey) {
 $ErrorActionPreference = "Stop"
 $ProgressPreference = "SilentlyContinue"
 # Stamped by pre-commit hook -- do not edit manually
-$Script:Revision = "41b8e16"
+$Script:Revision = "5c17d6e"
 
 Write-Host "install-apps.ps1 rev $Script:Revision" -ForegroundColor DarkGray
 
@@ -216,63 +216,37 @@ if (Test-Path $chromeExe) {
     Write-Host "  Chrome will auto-start at login (phenix.ameriglide.com)."
 }
 
-# 2. Managed bookmarks (all users, persists across Chrome resets).
-#    javascript: URLs are blocked here so the Quote Me bookmarklet goes
-#    through initial_preferences instead.
+# 2. Managed bookmarks — flat on the bar, no folders.
+#    javascript: URLs are blocked in managed bookmarks, so Quote Me goes
+#    directly into the Bookmarks file via initial_preferences instead.
 $managedBookmarks = @(
-    @{ toplevel_name = "Company" }
-    @{
-        name = "AmeriGlide"
-        children = @(
-            @{ name = "Website";    url = "https://www.ameriglide.com" }
-            @{ name = "Phenix CRM"; url = "https://phenix.ameriglide.com" }
-            @{ name = "Remix CRM";  url = "https://remix.ameriglide.com" }
-            @{ name = "Base";       url = "https://base.inetalliance.net" }
-        )
-    }
-    @{
-        name = "Google"
-        children = @(
-            @{ name = "Gmail";    url = "https://mail.google.com" }
-            @{ name = "Calendar"; url = "https://calendar.google.com" }
-            @{ name = "Drive";    url = "https://drive.google.com" }
-            @{ name = "Docs";     url = "https://docs.google.com" }
-            @{ name = "Sheets";   url = "https://sheets.google.com" }
-            @{ name = "Meet";     url = "https://meet.google.com" }
-        )
-    }
-    @{
-        name = "HR & Benefits"
-        children = @(
-            @{ name = "ADP (Payroll / PTO)"; url = "https://my.adp.com" }
-            @{ name = "401k";                url = "https://mykplan.com" }
-        )
-    }
-) | ConvertTo-Json -Depth 4 -Compress
+    @{ toplevel_name = "Bookmarks" }
+    @{ name = "AmeriGlide";       url = "https://www.ameriglide.com" }
+    @{ name = "Phenix CRM";       url = "https://phenix.ameriglide.com" }
+    @{ name = "Remix CRM";        url = "https://remix.ameriglide.com" }
+    @{ name = "Base";             url = "https://base.inetalliance.net" }
+    @{ name = "Gmail";            url = "https://mail.google.com" }
+    @{ name = "Calendar";         url = "https://calendar.google.com" }
+    @{ name = "Drive";            url = "https://drive.google.com" }
+    @{ name = "Docs";             url = "https://docs.google.com" }
+    @{ name = "Sheets";           url = "https://sheets.google.com" }
+    @{ name = "Meet";             url = "https://meet.google.com" }
+    @{ name = "ADP (Payroll/PTO)"; url = "https://my.adp.com" }
+    @{ name = "401k";             url = "https://mykplan.com" }
+) | ConvertTo-Json -Depth 2 -Compress
 
 Set-ItemProperty -Path $chromePolicies -Name "ManagedBookmarks" -Value $managedBookmarks -Type String
 Write-Host "  Managed bookmarks configured."
 
-# 3. initial_preferences: seed the Quote Me bookmarklet (javascript: URL)
-#    via an HTML bookmarks import. Chrome reads this on first profile creation.
+# 3. Quote Me bookmarklet + initial_preferences.
+#    Write the Bookmarks JSON file directly into the Default profile template
+#    instead of using import_bookmarks_from_file (which dumps into an
+#    "Imported" folder instead of the bar).
 $chromePath = "C:\Program Files\Google\Chrome\Application"
 if (Test-Path $chromePath) {
-    $bookmarksHtml = @"
-<!DOCTYPE NETSCAPE-Bookmark-file-1>
-<META HTTP-EQUIV="Content-Type" CONTENT="text/html; charset=UTF-8">
-<TITLE>Bookmarks</TITLE>
-<H1>Bookmarks</H1>
-<DL><p>
-    <DT><A HREF="javascript:createQuote()">Quote Me</A>
-</DL><p>
-"@
-    $importPath = "$chromePath\bookmarks.html"
-    Set-Content -Path $importPath -Value $bookmarksHtml -Encoding UTF8
-
     $initialPrefs = @{
         distribution = @{
-            import_bookmarks_from_file = $importPath
-            import_bookmarks = $true
+            import_bookmarks = $false
             show_bookmarks_bar = $true
         }
         browser = @{
@@ -283,7 +257,34 @@ if (Test-Path $chromePath) {
         }
     } | ConvertTo-Json -Depth 3
     Set-Content -Path "$chromePath\initial_preferences" -Value $initialPrefs -Encoding UTF8
-    Write-Host "  Quote Me bookmarklet seeded via initial_preferences."
+    Write-Host "  initial_preferences written (bookmarks bar on)."
+
+    # Pre-create the Default profile Bookmarks file with Quote Me on the bar.
+    # Chrome merges this with managed bookmarks on first launch.
+    $defaultProfile = "$env:SystemDrive\Users\Default\AppData\Local\Google\Chrome\User Data\Default"
+    New-Item -Path $defaultProfile -ItemType Directory -Force -ErrorAction SilentlyContinue | Out-Null
+    $bookmarksJson = @'
+{
+   "roots": {
+      "bookmark_bar": {
+         "children": [
+            {
+               "name": "Quote Me",
+               "type": "url",
+               "url": "javascript:createQuote()"
+            }
+         ],
+         "name": "Bookmarks bar",
+         "type": "folder"
+      },
+      "other": { "children": [], "name": "Other bookmarks", "type": "folder" },
+      "synced": { "children": [], "name": "Mobile bookmarks", "type": "folder" }
+   },
+   "version": 1
+}
+'@
+    Set-Content -Path "$defaultProfile\Bookmarks" -Value $bookmarksJson -Encoding UTF8
+    Write-Host "  Quote Me bookmarklet placed on bookmarks bar."
 } else {
     Write-Warning "  Chrome not found at $chromePath. Skipping initial_preferences."
 }
