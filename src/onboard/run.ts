@@ -4,6 +4,7 @@ import { amberjackStep } from "./steps/amberjack";
 import { phenixStep } from "./steps/phenix";
 import { twilioStep } from "./steps/twilio";
 import { directLineStep } from "./steps/direct-line";
+import { zoiperStep } from "./steps/zoiper";
 
 export async function run(ctx: Context): Promise<void> {
   const steps: Step[] = [
@@ -12,6 +13,7 @@ export async function run(ctx: Context): Promise<void> {
     phenixStep,
     twilioStep,
     directLineStep,
+    zoiperStep,
   ];
 
   for (const step of steps) {

@@ -4,3 +4,4 @@ installers/
 .env
 .env.*
 !.env.example
+output/
