@@ -1,8 +1,9 @@
 import type { Context, Step } from "./types";
+import { googleStep } from "./steps/google";
 
 export async function run(ctx: Context): Promise<void> {
   const steps: Step[] = [
-    // Steps will be added as we build them
+    googleStep,
   ];
 
   for (const step of steps) {
