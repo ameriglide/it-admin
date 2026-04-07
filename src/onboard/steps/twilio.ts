@@ -43,12 +43,14 @@ export const twilioStep: Step = {
     if (!aesKeyB64) throw new Error("AES_KEY not set");
     const aesKey = Buffer.from(aesKeyB64, "base64");
     const encryptedSecret = encrypt(sipPassword, aesKey);
+    // Phenix stores encrypted bytes as uppercase hex in a text column
+    const secretHex = encryptedSecret.toString("hex").toUpperCase();
 
     const sipUri = `sip:${sipUser}@ameriglide.pstn.twilio.com`;
 
     await sql`
       UPDATE agent
-      SET sipsecret = ${encryptedSecret},
+      SET sipsecret = ${secretHex},
           sipuri = ${sipUri},
           credentialsid = ${credSid},
           callroutingmode = 'SIP'
