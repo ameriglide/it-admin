@@ -33,7 +33,15 @@ install_apps() {
     echo >&2 "  ⚠  TAILSCALE_AUTH_KEY not set in .env — using placeholder"
     key="<paste-key-here>"
   fi
-  echo "Set-ExecutionPolicy Bypass -Scope Process -Force; irm https://raw.githubusercontent.com/ameriglide/it-admin/main/scripts/install-apps.ps1 -OutFile \$env:TEMP\\install-apps.ps1; & \$env:TEMP\\install-apps.ps1 -TailscaleAuthKey \"$key\""
+  local zuser="${ZOIPER_USERNAME:-}"
+  local zpass="${ZOIPER_PASSWORD:-}"
+  local cmd="Set-ExecutionPolicy Bypass -Scope Process -Force; irm https://raw.githubusercontent.com/ameriglide/it-admin/main/scripts/install-apps.ps1 -OutFile \$env:TEMP\\install-apps.ps1; & \$env:TEMP\\install-apps.ps1 -TailscaleAuthKey \"$key\""
+  if [[ -n "$zuser" && -n "$zpass" ]]; then
+    cmd="$cmd -ZoiperUsername \"$zuser\" -ZoiperPassword \"$zpass\""
+  else
+    echo >&2 "  ⚠  ZOIPER_USERNAME/ZOIPER_PASSWORD not set in .env — Zoiper activation will be skipped"
+  fi
+  echo "$cmd"
 }
 
 migration_phase1() {
@@ -83,8 +91,8 @@ LABELS=(
   "GCPW — new machine setup"
   "GCPW — repair (tile not showing)"
   "Install apps (with Tailscale key)"
-  "GCPW — migration phase 1..."
-  "GCPW — migration phase 2"
+  "JumpCloud to GCPW — phase 1..."
+  "JumpCloud to GCPW — phase 2"
   "Tailscale auth key (from .env)"
   "Generate new Tailscale key (SSH → headscale)..."
 )
@@ -95,8 +103,8 @@ dispatch() {
     "GCPW — new machine setup")                 new_machine ;;
     "GCPW — repair (tile not showing)")         repair_gcpw ;;
     "Install apps (with Tailscale key)")        install_apps ;;
-    "GCPW — migration phase 1...")               migration_phase1 ;;
-    "GCPW — migration phase 2")                 migration_phase2 ;;
+    "JumpCloud to GCPW — phase 1...")              migration_phase1 ;;
+    "JumpCloud to GCPW — phase 2")               migration_phase2 ;;
     "Tailscale auth key (from .env)")            tailscale_key ;;
     "Generate new Tailscale key (SSH → headscale)...") new_tailscale_key ;;
     *) return 1 ;;

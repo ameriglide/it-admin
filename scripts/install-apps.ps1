@@ -18,12 +18,20 @@
     If not passed as a parameter, the script will prompt for it.
     Generate one at your Headscale/Tailscale admin console.
 
+.PARAMETER ZoiperUsername
+    Zoiper account username for activating the Pro license.
+
+.PARAMETER ZoiperPassword
+    Zoiper account password for activating the Pro license.
+
 .EXAMPLE
-    .\install-apps.ps1 -TailscaleAuthKey "tskey-auth-abc123"
+    .\install-apps.ps1 -TailscaleAuthKey "tskey-auth-abc123" -ZoiperUsername "user@example.com" -ZoiperPassword "secret"
 #>
 
 param(
-    [string]$TailscaleAuthKey
+    [string]$TailscaleAuthKey,
+    [string]$ZoiperUsername,
+    [string]$ZoiperPassword
 )
 
 if (-not $TailscaleAuthKey) {
@@ -37,7 +45,7 @@ if (-not $TailscaleAuthKey) {
 $ErrorActionPreference = "Stop"
 $ProgressPreference = "SilentlyContinue"
 # Stamped by pre-commit hook -- do not edit manually
-$Script:Revision = "5c17d6e"
+$Script:Revision = "ed1e5ce"
 
 Write-Host "install-apps.ps1 rev $Script:Revision" -ForegroundColor DarkGray
 
@@ -175,6 +183,32 @@ if ($zoiperInstalled) {
     } else {
         Write-Warning "  Zoiper 5 install failed (exit code $($process.ExitCode))."
     }
+}
+Write-Host ""
+
+# ---------------------------------------------------------------------------
+# Zoiper 5 Pro activation
+# ---------------------------------------------------------------------------
+if ($ZoiperUsername -and $ZoiperPassword) {
+    Write-Host "Activating Zoiper 5 Pro license..." -ForegroundColor Yellow
+    $zoiperPath = $null
+    foreach ($dir in @("${env:ProgramFiles}\Zoiper5", "${env:ProgramFiles(x86)}\Zoiper5")) {
+        if (Test-Path "$dir\Zoiper5.exe") { $zoiperPath = "$dir\Zoiper5.exe"; break }
+    }
+    if ($zoiperPath) {
+        $activationProcess = Start-Process -FilePath $zoiperPath `
+            -ArgumentList "--activation-username=`"$ZoiperUsername`" --activation-password=`"$ZoiperPassword`"" `
+            -Wait -PassThru
+        if ($activationProcess.ExitCode -eq 0) {
+            Write-Host "  Zoiper 5 Pro activated." -ForegroundColor Green
+        } else {
+            Write-Warning "  Zoiper activation failed (exit code $($activationProcess.ExitCode))."
+        }
+    } else {
+        Write-Warning "  Zoiper5.exe not found. Cannot activate."
+    }
+} else {
+    Write-Host "Zoiper activation: skipped (no credentials provided)." -ForegroundColor DarkGray
 }
 Write-Host ""
 

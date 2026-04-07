@@ -28,7 +28,7 @@ ${LINE}
 
   Zoiper
     Config: ${ctx.zoiperConfigPath ?? "not generated"}
-    Manual: Activate Pro, then copy to %APPDATA%\\Zoiper5\\
+    Activation: handled by install-apps.ps1 (ZOIPER_USERNAME/PASSWORD in .env)
 
 ${LINE}
   Next: Run bin/copy on the new machine
