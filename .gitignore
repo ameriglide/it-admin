@@ -5,3 +5,4 @@ installers/
 .env.*
 !.env.example
 output/
+service-account.json
