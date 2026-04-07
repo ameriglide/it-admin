@@ -11,10 +11,10 @@ export const directLineStep: Step = {
 
     const sql = getPhenix();
     const [row] = await sql`
-      SELECT phone_number FROM verified_caller_id WHERE direct = ${ctx.phenixAgentId}
+      SELECT phonenumber FROM verifiedcallerid WHERE direct = ${ctx.phenixAgentId}
     `;
     if (row) {
-      ctx.phoneNumber = row.phone_number;
+      ctx.phoneNumber = row.phonenumber;
       return true;
     }
     return false;
@@ -54,7 +54,7 @@ export const directLineStep: Step = {
 
     const sql = getPhenix();
     await sql`
-      INSERT INTO verified_caller_id (sid, phone_number, friendly_name, direct, default_outbound)
+      INSERT INTO verifiedcallerid (sid, phonenumber, friendlyname, direct, defaultoutbound)
       VALUES (${numberSid}, ${number.phoneNumber}, ${number.friendlyName}, ${ctx.phenixAgentId}, false)
     `;
 

@@ -10,12 +10,17 @@ const { values } = parseArgs({
   options: {
     first: { type: "string" },
     last: { type: "string" },
+    email: { type: "string" },
+    skip: { type: "string" },
     "direct-line": { type: "boolean", default: false },
   },
   strict: true,
 });
 
 const directLine = Bun.argv.includes("--direct-line") ? true : undefined;
+const skip = values.skip
+  ? values.skip.split(",").map((s) => s.trim().toLowerCase())
+  : [];
 
 const firstName = values.first ?? (await input("First name"));
 const lastName = values.last ?? (await input("Last name"));
@@ -25,10 +30,12 @@ if (!firstName || !lastName) {
   process.exit(1);
 }
 
-const email = `${firstName.toLowerCase()}.${lastName.toLowerCase()}@ameriglide.com`;
+const email =
+  values.email ??
+  `${firstName.toLowerCase()}.${lastName.toLowerCase()}@ameriglide.com`;
 
 console.log(`\nOnboarding ${firstName} ${lastName} (${email})\n`);
 
 const ctx: Context = { firstName, lastName, email, directLine };
 
-await run(ctx);
+await run(ctx, skip);

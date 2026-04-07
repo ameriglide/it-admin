@@ -48,10 +48,10 @@ export const twilioStep: Step = {
 
     await sql`
       UPDATE agent
-      SET sip_secret = ${encryptedSecret},
-          sip_uri = ${sipUri},
-          credential_sid = ${credSid},
-          call_routing_mode = 'SIP'
+      SET sipsecret = ${encryptedSecret},
+          sipuri = ${sipUri},
+          credentialsid = ${credSid},
+          callroutingmode = 'SIP'
       WHERE id = ${ctx.phenixAgentId}
     `;
 

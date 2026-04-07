@@ -17,11 +17,19 @@ const steps: Step[] = [
   zoiperStep,
 ];
 
-export async function run(ctx: Context): Promise<void> {
+export async function run(
+  ctx: Context,
+  skip: string[] = [],
+): Promise<void> {
   const completed: string[] = [];
 
   try {
     for (const step of steps) {
+      const stepKey = step.name.toLowerCase().replace(/\s+/g, "");
+      if (skip.some((s) => stepKey === s || stepKey.startsWith(s))) {
+        console.log(`\n  ⏭ ${step.name} — skipped`);
+        continue;
+      }
       console.log(`\nChecking ${step.name}...`);
       const done = await step.check(ctx);
       if (done) {
