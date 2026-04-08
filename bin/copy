@@ -78,6 +78,9 @@ zoiper_setup() {
 
   echo >&2 "  ✓ Found SIP user: $sip_user"
 
+  local win_user
+  win_user=$(gum input --placeholder "$sip_user" --header "Windows username (blank = Default profile only)")
+
   local zuser="${ZOIPER_USERNAME:-}"
   local zpass="${ZOIPER_PASSWORD:-}"
   local cmd="Set-ExecutionPolicy Bypass -Scope Process -Force; irm https://raw.githubusercontent.com/ameriglide/it-admin/main/scripts/setup-zoiper.ps1 -OutFile \$env:TEMP\\setup-zoiper.ps1; & \$env:TEMP\\setup-zoiper.ps1 -SipUser \"$sip_user\" -SipPassword \"$sip_pass\""
@@ -85,6 +88,9 @@ zoiper_setup() {
     cmd="$cmd -ZoiperUsername \"$zuser\" -ZoiperPassword \"$zpass\""
   else
     echo >&2 "  ⚠  ZOIPER_USERNAME/ZOIPER_PASSWORD not set — activation will be skipped"
+  fi
+  if [[ -n "$win_user" ]]; then
+    cmd="$cmd -TargetUser \"$win_user\""
   fi
   echo "$cmd"
 }

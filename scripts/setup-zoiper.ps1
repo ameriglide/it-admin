@@ -30,7 +30,8 @@ param(
     [Parameter(Mandatory)][string]$SipPassword,
     [string]$SipDomain = "ameriglide.pstn.twilio.com",
     [string]$ZoiperUsername,
-    [string]$ZoiperPassword
+    [string]$ZoiperPassword,
+    [string]$TargetUser
 )
 
 # Disable progress bar — speeds up Invoke-WebRequest dramatically
@@ -89,11 +90,6 @@ Write-Host ""
 # ---------------------------------------------------------------------------
 Write-Host "Writing SIP config..." -ForegroundColor Yellow
 
-$configDir = "$env:APPDATA\Zoiper5"
-if (-not (Test-Path $configDir)) {
-    New-Item -Path $configDir -ItemType Directory -Force | Out-Null
-}
-
 # XML-escape values
 function EscapeXml([string]$s) {
     $s.Replace("&","&amp;").Replace("<","&lt;").Replace(">","&gt;").Replace('"',"&quot;").Replace("'","&apos;")
@@ -139,9 +135,30 @@ $xml = @"
 </options>
 "@
 
-$configFile = "$configDir\Config.xml"
-Set-Content -Path $configFile -Value $xml -Encoding UTF8
-Write-Host "  SIP config written to $configFile" -ForegroundColor Green
+# Build list of directories to write the config into
+$configDirs = @()
+
+# Always write to Default profile (picked up on first login)
+$configDirs += "$env:SystemDrive\Users\Default\AppData\Roaming\Zoiper5"
+
+# If a target user was specified, write to their profile too
+if ($TargetUser) {
+    $userProfile = "$env:SystemDrive\Users\$TargetUser\AppData\Roaming\Zoiper5"
+    if (Test-Path "$env:SystemDrive\Users\$TargetUser") {
+        $configDirs += $userProfile
+    } else {
+        Write-Warning "  User profile for '$TargetUser' not found — will use Default profile only."
+    }
+}
+
+foreach ($configDir in $configDirs) {
+    if (-not (Test-Path $configDir)) {
+        New-Item -Path $configDir -ItemType Directory -Force | Out-Null
+    }
+    $configFile = "$configDir\Config.xml"
+    Set-Content -Path $configFile -Value $xml -Encoding UTF8
+    Write-Host "  SIP config written to $configFile" -ForegroundColor Green
+}
 Write-Host ""
 
 Write-Host "========================================" -ForegroundColor Green
