@@ -33,6 +33,9 @@ param(
     [string]$ZoiperPassword
 )
 
+# Disable progress bar — speeds up Invoke-WebRequest dramatically
+$ProgressPreference = 'SilentlyContinue'
+
 # ---------------------------------------------------------------------------
 # Install Zoiper 5
 # ---------------------------------------------------------------------------

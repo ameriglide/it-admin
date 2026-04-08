@@ -34,6 +34,9 @@ param(
     [string]$ZoiperPassword
 )
 
+# Disable progress bar — speeds up Invoke-WebRequest dramatically
+$ProgressPreference = 'SilentlyContinue'
+
 if (-not $TailscaleAuthKey) {
     $TailscaleAuthKey = Read-Host "Tailscale auth key (tskey-auth-...)"
 }
@@ -45,7 +48,7 @@ if (-not $TailscaleAuthKey) {
 $ErrorActionPreference = "Stop"
 $ProgressPreference = "SilentlyContinue"
 # Stamped by pre-commit hook -- do not edit manually
-$Script:Revision = "ed1e5ce"
+$Script:Revision = "0608fad"
 
 Write-Host "install-apps.ps1 rev $Script:Revision" -ForegroundColor DarkGray
 
