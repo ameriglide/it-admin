@@ -20,30 +20,36 @@ export function generateConfig(opts: {
 <options>
   <accounts>
     <account>
-      <name>${escapeXml(opts.sipUser)}</name>
       <username>${escapeXml(opts.sipUser)}</username>
       <password>${escapeXml(opts.sipPassword)}</password>
-      <host>${escapeXml(opts.sipDomain)}</host>
-      <transport>2</transport>
-      <use_rport>1</use_rport>
-      <dtmf_style>1</dtmf_style>
-      <registration_expiry>600</registration_expiry>
-      <use_stun>0</use_stun>
-      <codec>
-        <codec_id>0</codec_id>
-        <priority>0</priority>
-        <enabled>1</enabled>
-      </codec>
-      <codec>
-        <codec_id>8</codec_id>
-        <priority>1</priority>
-        <enabled>1</enabled>
-      </codec>
-      <codec>
-        <codec_id>9</codec_id>
-        <priority>2</priority>
-        <enabled>1</enabled>
-      </codec>
+      <SIP_domain>${escapeXml(opts.sipDomain)}</SIP_domain>
+      <SIP_transport_type>2</SIP_transport_type>
+      <SIP_use_rport>1</SIP_use_rport>
+      <SIP_dtmf_style>1</SIP_dtmf_style>
+      <reregistration_time>60</reregistration_time>
+      <use_ice>1</use_ice>
+      <codecs>
+        <codec>
+          <codec_id>0</codec_id>
+          <priority>0</priority>
+          <enabled>1</enabled>
+        </codec>
+        <codec>
+          <codec_id>8</codec_id>
+          <priority>1</priority>
+          <enabled>1</enabled>
+        </codec>
+        <codec>
+          <codec_id>9</codec_id>
+          <priority>2</priority>
+          <enabled>1</enabled>
+        </codec>
+      </codecs>
+      <stun>
+        <use_stun>1</use_stun>
+        <stun_host>global.stun.twilio.com</stun_host>
+        <stun_port>3478</stun_port>
+      </stun>
     </account>
   </accounts>
 </options>`;
@@ -54,8 +60,10 @@ export const zoiperStep: Step = {
 
   async check(ctx: Context): Promise<boolean> {
     if (!ctx.sipUsername || !ctx.sipPassword) return true;
-    const name = `${ctx.firstName.toLowerCase()}-${ctx.lastName.toLowerCase()}`;
-    const outPath = join(process.cwd(), "output", `zoiper-${name}.xml`);
+    const filename = `zoiper-${ctx.firstName}-${ctx.lastName}.xml`
+      .toLowerCase()
+      .replace(/[^a-z0-9.\-]/g, "");
+    const outPath = join(process.cwd(), "output", filename);
     if (existsSync(outPath)) {
       ctx.zoiperConfigPath = outPath;
       return true;
@@ -75,8 +83,10 @@ export const zoiperStep: Step = {
     const outDir = join(process.cwd(), "output");
     mkdirSync(outDir, { recursive: true });
 
-    const name = `${ctx.firstName.toLowerCase()}-${ctx.lastName.toLowerCase()}`;
-    const outPath = join(outDir, `zoiper-${name}.xml`);
+    const filename = `zoiper-${ctx.firstName}-${ctx.lastName}.xml`
+      .toLowerCase()
+      .replace(/[^a-z0-9.\-]/g, "");
+    const outPath = join(outDir, filename);
     await Bun.write(outPath, xml);
 
     ctx.zoiperConfigPath = outPath;

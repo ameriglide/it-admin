@@ -12,8 +12,10 @@ describe("zoiper config", () => {
     expect(xml).toContain('<?xml version="1.0"');
     expect(xml).toContain("<username>john.doe</username>");
     expect(xml).toContain("<password>testPass123</password>");
-    expect(xml).toContain("<host>ameriglide.pstn.twilio.com</host>");
-    expect(xml).toContain("<transport>2</transport>");
+    expect(xml).toContain("<SIP_domain>ameriglide.pstn.twilio.com</SIP_domain>");
+    expect(xml).toContain("<SIP_transport_type>2</SIP_transport_type>");
+    expect(xml).toContain("<use_ice>1</use_ice>");
+    expect(xml).toContain("<stun_host>global.stun.twilio.com</stun_host>");
   });
 
   test("escapes XML special characters in password", () => {

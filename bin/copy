@@ -55,6 +55,40 @@ migration_phase2() {
   echo '& $env:TEMP\deploy-gcpw.ps1 -Phase 2'
 }
 
+zoiper_setup() {
+  local email
+  email=$(gum input --placeholder "user@ameriglide.com" --header "Zoiper: enter employee email")
+  [[ -z "$email" ]] && return 1
+
+  echo >&2 "  Looking up SIP credentials..."
+  local sip_output
+  if ! sip_output=$("$SCRIPT_DIR/bin/sip-password" --email "$email" 2>/dev/null); then
+    echo >&2 "  ⚠  No SIP credentials found for $email"
+    return 1
+  fi
+
+  local sip_user sip_pass
+  sip_user=$(echo "$sip_output" | sed -n 's/^SIP User: *//p')
+  sip_pass=$(echo "$sip_output" | sed -n 's/^SIP Pass: *//p')
+
+  if [[ -z "$sip_user" || -z "$sip_pass" ]]; then
+    echo >&2 "  ⚠  Could not parse SIP credentials"
+    return 1
+  fi
+
+  echo >&2 "  ✓ Found SIP user: $sip_user"
+
+  local zuser="${ZOIPER_USERNAME:-}"
+  local zpass="${ZOIPER_PASSWORD:-}"
+  local cmd="Set-ExecutionPolicy Bypass -Scope Process -Force; irm https://raw.githubusercontent.com/ameriglide/it-admin/main/scripts/setup-zoiper.ps1 -OutFile \$env:TEMP\\setup-zoiper.ps1; & \$env:TEMP\\setup-zoiper.ps1 -SipUser \"$sip_user\" -SipPassword \"$sip_pass\""
+  if [[ -n "$zuser" && -n "$zpass" ]]; then
+    cmd="$cmd -ZoiperUsername \"$zuser\" -ZoiperPassword \"$zpass\""
+  else
+    echo >&2 "  ⚠  ZOIPER_USERNAME/ZOIPER_PASSWORD not set — activation will be skipped"
+  fi
+  echo "$cmd"
+}
+
 tailscale_key() {
   local key="${TAILSCALE_AUTH_KEY:-}"
   if [[ -z "$key" ]]; then
@@ -91,6 +125,7 @@ LABELS=(
   "GCPW — new machine setup"
   "GCPW — repair (tile not showing)"
   "Install apps (with Tailscale key)"
+  "Zoiper — install + configure..."
   "JumpCloud to GCPW — phase 1..."
   "JumpCloud to GCPW — phase 2"
   "Tailscale auth key (from .env)"
@@ -103,6 +138,7 @@ dispatch() {
     "GCPW — new machine setup")                 new_machine ;;
     "GCPW — repair (tile not showing)")         repair_gcpw ;;
     "Install apps (with Tailscale key)")        install_apps ;;
+    "Zoiper — install + configure...")             zoiper_setup ;;
     "JumpCloud to GCPW — phase 1...")              migration_phase1 ;;
     "JumpCloud to GCPW — phase 2")               migration_phase2 ;;
     "Tailscale auth key (from .env)")            tailscale_key ;;
