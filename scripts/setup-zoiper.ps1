@@ -86,6 +86,32 @@ if ($ZoiperUsername -and $ZoiperPassword) {
 Write-Host ""
 
 # ---------------------------------------------------------------------------
+# Firewall rules (prevent UAC prompt on first launch)
+# ---------------------------------------------------------------------------
+Write-Host "Configuring firewall rules..." -ForegroundColor Yellow
+
+$zoiperExePath = $null
+foreach ($dir in @("${env:ProgramFiles}\Zoiper5", "${env:ProgramFiles(x86)}\Zoiper5")) {
+    if (Test-Path "$dir\Zoiper5.exe") { $zoiperExePath = "$dir\Zoiper5.exe"; break }
+}
+
+if ($zoiperExePath) {
+    $ruleName = "Zoiper5"
+    # Remove any stale rules first
+    Get-NetFirewallRule -DisplayName "$ruleName*" -ErrorAction SilentlyContinue | Remove-NetFirewallRule -ErrorAction SilentlyContinue
+
+    New-NetFirewallRule -DisplayName "$ruleName (TCP)" -Direction Inbound -Program $zoiperExePath `
+        -Protocol TCP -Action Allow -Profile Any | Out-Null
+    New-NetFirewallRule -DisplayName "$ruleName (UDP)" -Direction Inbound -Program $zoiperExePath `
+        -Protocol UDP -Action Allow -Profile Any | Out-Null
+
+    Write-Host "  Firewall rules added for $zoiperExePath" -ForegroundColor Green
+} else {
+    Write-Warning "  Zoiper5.exe not found. Firewall rules not created."
+}
+Write-Host ""
+
+# ---------------------------------------------------------------------------
 # Write SIP account config
 # ---------------------------------------------------------------------------
 Write-Host "Writing SIP config..." -ForegroundColor Yellow

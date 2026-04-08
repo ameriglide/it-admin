@@ -46,7 +46,7 @@ install_apps() {
 
 migration_phase1() {
   local user
-  user=$(gum input --placeholder "Google username (e.g. jsmith)" --header "Migration: enter employee username")
+  user=$(gum input --placeholder "Google username (e.g. jsmith)" --header "Migration: enter employee username" </dev/tty)
   [[ -z "$user" ]] && return 1
   echo "Set-ExecutionPolicy Bypass -Scope Process -Force; irm https://raw.githubusercontent.com/ameriglide/it-admin/main/scripts/deploy-gcpw.ps1 -OutFile \$env:TEMP\\deploy-gcpw.ps1; & \$env:TEMP\\deploy-gcpw.ps1 -GoogleEmail ${user}@ameriglide.com -Domain ameriglide.com -WindowsUsername ${user} -Phase 1"
 }
@@ -57,7 +57,7 @@ migration_phase2() {
 
 zoiper_setup() {
   local email
-  email=$(gum input --placeholder "user@ameriglide.com" --header "Zoiper: enter employee email")
+  email=$(gum input --placeholder "user@ameriglide.com" --header "Zoiper: enter employee email" </dev/tty)
   [[ -z "$email" ]] && return 1
 
   echo >&2 "  Looking up SIP credentials..."
@@ -79,7 +79,7 @@ zoiper_setup() {
   echo >&2 "  ✓ Found SIP user: $sip_user"
 
   local win_user
-  win_user=$(gum input --placeholder "$sip_user" --header "Windows username (blank = Default profile only)")
+  win_user=$(gum input --placeholder "$sip_user" --header "Windows username (blank = Default profile only)" </dev/tty) || true
 
   local zuser="${ZOIPER_USERNAME:-}"
   local zpass="${ZOIPER_PASSWORD:-}"
