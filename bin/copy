@@ -163,9 +163,4 @@ while true; do
 
   printf '%s' "$payload" | pbcopy
   gum style --foreground 35 "  ✓ Copied: $choice"
-
-  # Wait for keypress before showing menu again; esc exits
-  read -rsn1 -p "  Press any key to copy another, or Esc to quit... " key </dev/tty
-  echo
-  [[ "$key" == $'\e' ]] && break
 done
