@@ -59,6 +59,7 @@ zoiper_setup() {
   local email
   email=$(gum input --placeholder "user@ameriglide.com" --header "Zoiper: enter employee email" </dev/tty)
   [[ -z "$email" ]] && return 1
+  [[ "$email" != *@* ]] && email="${email}@ameriglide.com"
 
   echo >&2 "  Looking up SIP credentials..."
   local sip_output
@@ -79,7 +80,7 @@ zoiper_setup() {
   echo >&2 "  ✓ Found SIP user: $sip_user"
 
   local win_user
-  win_user=$(gum input --placeholder "$sip_user" --header "Windows username (blank = Default profile only)" </dev/tty) || true
+  win_user=$(gum input --value "$sip_user" --header "Windows username (blank = Default profile only)" </dev/tty) || true
 
   local zuser="${ZOIPER_USERNAME:-}"
   local zpass="${ZOIPER_PASSWORD:-}"
@@ -159,11 +160,13 @@ dispatch() {
 
 while true; do
   echo
+  # Flush any buffered terminal input so gum choose waits for real input
+  read -r -t 0.1 -n 10000 discard </dev/tty 2>/dev/null || true
   choice=$(gum choose "${LABELS[@]}" \
     --header "  Copy to clipboard (esc to quit)" \
     --header.foreground 240 \
     --cursor.foreground 33 \
-    --selected.foreground 33) || break
+    --selected.foreground 33 </dev/tty) || break
 
   payload=$(dispatch "$choice") || continue
 

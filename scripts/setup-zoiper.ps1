@@ -28,7 +28,7 @@
 param(
     [Parameter(Mandatory)][string]$SipUser,
     [Parameter(Mandatory)][string]$SipPassword,
-    [string]$SipDomain = "ameriglide.pstn.twilio.com",
+    [string]$SipDomain = "phenix.sip.twilio.com",
     [string]$ZoiperUsername,
     [string]$ZoiperPassword,
     [string]$TargetUser
@@ -126,6 +126,7 @@ $xml = @"
 <options>
   <accounts>
     <account>
+      <account_name>$(EscapeXml $SipUser)</account_name>
       <username>$(EscapeXml $SipUser)</username>
       <password>$(EscapeXml $SipPassword)</password>
       <SIP_domain>$(EscapeXml $SipDomain)</SIP_domain>
