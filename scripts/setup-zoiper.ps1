@@ -34,7 +34,7 @@ param(
     [string]$TargetUser
 )
 
-# Disable progress bar — speeds up Invoke-WebRequest dramatically
+# Disable progress bar - speeds up Invoke-WebRequest dramatically
 $ProgressPreference = 'SilentlyContinue'
 
 # ---------------------------------------------------------------------------
@@ -173,7 +173,7 @@ if ($TargetUser) {
     if (Test-Path "$env:SystemDrive\Users\$TargetUser") {
         $configDirs += $userProfile
     } else {
-        Write-Warning "  User profile for '$TargetUser' not found — will use Default profile only."
+        Write-Warning "  User profile for '$TargetUser' not found - will use Default profile only."
     }
 }
 

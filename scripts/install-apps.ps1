@@ -34,7 +34,7 @@ param(
     [string]$ZoiperPassword
 )
 
-# Disable progress bar — speeds up Invoke-WebRequest dramatically
+# Disable progress bar - speeds up Invoke-WebRequest dramatically
 $ProgressPreference = 'SilentlyContinue'
 
 if (-not $TailscaleAuthKey) {
@@ -48,7 +48,7 @@ if (-not $TailscaleAuthKey) {
 $ErrorActionPreference = "Stop"
 $ProgressPreference = "SilentlyContinue"
 # Stamped by pre-commit hook -- do not edit manually
-$Script:Revision = "0608fad"
+$Script:Revision = "b30942a"
 
 Write-Host "install-apps.ps1 rev $Script:Revision" -ForegroundColor DarkGray
 
@@ -253,7 +253,7 @@ if (Test-Path $chromeExe) {
     Write-Host "  Chrome will auto-start at login (phenix.ameriglide.com)."
 }
 
-# 2. Managed bookmarks — flat on the bar, no folders.
+# 2. Managed bookmarks - flat on the bar, no folders.
 #    javascript: URLs are blocked in managed bookmarks, so Quote Me goes
 #    directly into the Bookmarks file via initial_preferences instead.
 $managedBookmarks = @(
