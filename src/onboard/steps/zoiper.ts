@@ -16,37 +16,45 @@ export function generateConfig(opts: {
   sipPassword: string;
   sipDomain: string;
 }): string {
+  const ident = `${opts.sipUser}@${opts.sipDomain}`;
   return `<?xml version="1.0" encoding="utf-8"?>
 <options>
   <accounts>
     <account>
+      <ident>${escapeXml(ident)}</ident>
+      <name>${escapeXml(opts.sipUser)}</name>
+      <protocol>sip</protocol>
       <username>${escapeXml(opts.sipUser)}</username>
       <password>${escapeXml(opts.sipPassword)}</password>
-      <SIP_domain>${escapeXml(opts.sipDomain)}</SIP_domain>
-      <SIP_transport_type>2</SIP_transport_type>
-      <SIP_use_rport>1</SIP_use_rport>
-      <SIP_dtmf_style>1</SIP_dtmf_style>
-      <reregistration_time>60</reregistration_time>
-      <use_ice>1</use_ice>
+      <save_username>true</save_username>
+      <save_password>true</save_password>
+      <register_on_startup>true</register_on_startup>
+      <SIP_domain>${escapeXml(`${opts.sipDomain}:5061`)}</SIP_domain>
+      <SIP_transport_type>tls</SIP_transport_type>
+      <SIP_use_rport>true</SIP_use_rport>
+      <SIP_srtp_mode>sdes</SIP_srtp_mode>
+      <SIP_dtmf_style>rfc_2833</SIP_dtmf_style>
+      <reregistration_mode>custom</reregistration_mode>
+      <reregistration_time>600</reregistration_time>
       <codecs>
         <codec>
           <codec_id>0</codec_id>
           <priority>0</priority>
-          <enabled>1</enabled>
+          <enabled>true</enabled>
         </codec>
         <codec>
           <codec_id>8</codec_id>
           <priority>1</priority>
-          <enabled>1</enabled>
+          <enabled>true</enabled>
         </codec>
         <codec>
           <codec_id>9</codec_id>
           <priority>2</priority>
-          <enabled>1</enabled>
+          <enabled>true</enabled>
         </codec>
       </codecs>
       <stun>
-        <use_stun>1</use_stun>
+        <use_stun>custom</use_stun>
         <stun_host>global.stun.twilio.com</stun_host>
         <stun_port>3478</stun_port>
       </stun>
@@ -77,7 +85,7 @@ export const zoiperStep: Step = {
     const xml = generateConfig({
       sipUser: ctx.sipUsername,
       sipPassword: ctx.sipPassword,
-      sipDomain: "ameriglide.pstn.twilio.com",
+      sipDomain: "phenix.sip.twilio.com",
     });
 
     const outDir = join(process.cwd(), "output");

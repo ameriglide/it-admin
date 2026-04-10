@@ -126,34 +126,40 @@ $xml = @"
 <options>
   <accounts>
     <account>
-      <account_name>$(EscapeXml $SipUser)</account_name>
+      <ident>$(EscapeXml "$SipUser@$SipDomain")</ident>
+      <name>$(EscapeXml $SipUser)</name>
+      <protocol>sip</protocol>
       <username>$(EscapeXml $SipUser)</username>
       <password>$(EscapeXml $SipPassword)</password>
-      <SIP_domain>$(EscapeXml $SipDomain)</SIP_domain>
-      <SIP_transport_type>2</SIP_transport_type>
-      <SIP_use_rport>1</SIP_use_rport>
-      <SIP_dtmf_style>1</SIP_dtmf_style>
-      <reregistration_time>60</reregistration_time>
-      <use_ice>1</use_ice>
+      <save_username>true</save_username>
+      <save_password>true</save_password>
+      <register_on_startup>true</register_on_startup>
+      <SIP_domain>$(EscapeXml "${SipDomain}:5061")</SIP_domain>
+      <SIP_transport_type>tls</SIP_transport_type>
+      <SIP_use_rport>true</SIP_use_rport>
+      <SIP_srtp_mode>sdes</SIP_srtp_mode>
+      <SIP_dtmf_style>rfc_2833</SIP_dtmf_style>
+      <reregistration_mode>custom</reregistration_mode>
+      <reregistration_time>600</reregistration_time>
       <codecs>
         <codec>
           <codec_id>0</codec_id>
           <priority>0</priority>
-          <enabled>1</enabled>
+          <enabled>true</enabled>
         </codec>
         <codec>
           <codec_id>8</codec_id>
           <priority>1</priority>
-          <enabled>1</enabled>
+          <enabled>true</enabled>
         </codec>
         <codec>
           <codec_id>9</codec_id>
           <priority>2</priority>
-          <enabled>1</enabled>
+          <enabled>true</enabled>
         </codec>
       </codecs>
       <stun>
-        <use_stun>1</use_stun>
+        <use_stun>custom</use_stun>
         <stun_host>global.stun.twilio.com</stun_host>
         <stun_port>3478</stun_port>
       </stun>
