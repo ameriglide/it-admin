@@ -158,18 +158,14 @@ dispatch() {
 # Loop
 # ---------------------------------------------------------------------------
 
-while true; do
-  echo
-  # Flush any buffered terminal input so gum choose waits for real input
-  read -r -t 0.1 -n 10000 discard </dev/tty 2>/dev/null || true
-  choice=$(gum choose "${LABELS[@]}" \
-    --header "  Copy to clipboard (esc to quit)" \
-    --header.foreground 240 \
-    --cursor.foreground 33 \
-    --selected.foreground 33 </dev/tty) || break
+PS3="  Pick an option (q to quit): "
+echo
+select choice in "${LABELS[@]}"; do
+  [[ -z "$choice" ]] && { [[ "$REPLY" == q ]] && break; continue; }
 
-  payload=$(dispatch "$choice") || continue
+  payload=$(dispatch "$choice") || { echo; continue; }
 
   printf '%s' "$payload" | pbcopy
   gum style --foreground 35 "  ✓ Copied: $choice"
+  echo
 done
