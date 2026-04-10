@@ -32,7 +32,7 @@ export function generateConfig(opts: {
       <SIP_domain>${escapeXml(`${opts.sipDomain}:5061`)}</SIP_domain>
       <SIP_transport_type>tls</SIP_transport_type>
       <SIP_use_rport>true</SIP_use_rport>
-      <SIP_srtp_mode>sdes</SIP_srtp_mode>
+      <SIP_srtp_mode>none</SIP_srtp_mode>
       <SIP_dtmf_style>rfc_2833</SIP_dtmf_style>
       <reregistration_mode>custom</reregistration_mode>
       <reregistration_time>600</reregistration_time>
@@ -43,20 +43,18 @@ export function generateConfig(opts: {
           <enabled>true</enabled>
         </codec>
         <codec>
-          <codec_id>8</codec_id>
+          <codec_id>6</codec_id>
           <priority>1</priority>
           <enabled>true</enabled>
         </codec>
         <codec>
-          <codec_id>9</codec_id>
+          <codec_id>7</codec_id>
           <priority>2</priority>
           <enabled>true</enabled>
         </codec>
       </codecs>
       <stun>
-        <use_stun>custom</use_stun>
-        <stun_host>global.stun.twilio.com</stun_host>
-        <stun_port>3478</stun_port>
+        <use_stun>disabled</use_stun>
       </stun>
     </account>
   </accounts>

@@ -17,8 +17,13 @@ describe("zoiper config", () => {
     expect(xml).toContain("<password>testPass123</password>");
     expect(xml).toContain("<SIP_domain>phenix.sip.twilio.com:5061</SIP_domain>");
     expect(xml).toContain("<SIP_transport_type>tls</SIP_transport_type>");
-    expect(xml).toContain("<SIP_srtp_mode>sdes</SIP_srtp_mode>");
-    expect(xml).toContain("<stun_host>global.stun.twilio.com</stun_host>");
+    expect(xml).toContain("<SIP_srtp_mode>none</SIP_srtp_mode>");
+    expect(xml).toContain("<use_stun>disabled</use_stun>");
+    // PCMU=0, PCMA=6, G.722=7 per Zoiper's codec_id enumeration
+    // (NOT the SDP/RTP payload type numbers 0/8/9)
+    expect(xml).toContain("<codec_id>0</codec_id>");
+    expect(xml).toContain("<codec_id>6</codec_id>");
+    expect(xml).toContain("<codec_id>7</codec_id>");
   });
 
   test("escapes XML special characters in password", () => {
