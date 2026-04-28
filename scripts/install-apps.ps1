@@ -24,15 +24,30 @@
 .PARAMETER ZoiperPassword
     Zoiper account password for activating the Pro license.
 
+.PARAMETER Only
+    If set, install only the named app(s) and skip post-install bookmarks/Slack/Zoiper sections.
+    Valid values match the choco IDs: googlechrome, adobereader, slack, tailscale, googledrive, zoiper.
+    Example: -Only tailscale
+
 .EXAMPLE
     .\install-apps.ps1 -TailscaleAuthKey "tskey-auth-abc123" -ZoiperUsername "user@example.com" -ZoiperPassword "secret"
+
+.EXAMPLE
+    .\install-apps.ps1 -TailscaleAuthKey "tskey-auth-abc123" -Only tailscale
 #>
 
 param(
     [string]$TailscaleAuthKey,
     [string]$ZoiperUsername,
-    [string]$ZoiperPassword
+    [string]$ZoiperPassword,
+    [string[]]$Only = @()
 )
+
+$OnlyMode = $Only.Count -gt 0
+function Should-Run([string]$id) {
+    if (-not $OnlyMode) { return $true }
+    return $Only -contains $id
+}
 
 # Disable progress bar - speeds up Invoke-WebRequest dramatically
 $ProgressPreference = 'SilentlyContinue'
@@ -48,7 +63,7 @@ if (-not $TailscaleAuthKey) {
 $ErrorActionPreference = "Stop"
 $ProgressPreference = "SilentlyContinue"
 # Stamped by pre-commit hook -- do not edit manually
-$Script:Revision = "f702a85"
+$Script:Revision = "c4de0c8"
 
 Write-Host "install-apps.ps1 rev $Script:Revision" -ForegroundColor DarkGray
 
@@ -97,7 +112,7 @@ $apps = @(
     @{ Name = "Slack";               Id = "slack" },
     @{ Name = "Tailscale";           Id = "tailscale" },
     @{ Name = "Google Drive";        Id = "googledrive" }
-)
+) | Where-Object { Should-Run $_.Id }
 
 $total = $apps.Count
 $current = 0
@@ -144,6 +159,7 @@ foreach ($app in $apps) {
 # ---------------------------------------------------------------------------
 # Tailscale auth
 # ---------------------------------------------------------------------------
+if (Should-Run "tailscale") {
 Write-Host "Joining Tailscale network..." -ForegroundColor Yellow
 # Refresh PATH so freshly-installed Tailscale CLI is discoverable
 $env:Path = [System.Environment]::GetEnvironmentVariable("Path", "Machine") + ";" + [System.Environment]::GetEnvironmentVariable("Path", "User")
@@ -166,10 +182,12 @@ if ($tsCmd) {
     Write-Warning "  Tailscale CLI not found. May require a reboot before auth."
 }
 Write-Host ""
+}
 
 # ---------------------------------------------------------------------------
 # Zoiper 5 (hosted in repo -- not available on winget or choco reliably)
 # ---------------------------------------------------------------------------
+if (Should-Run "zoiper") {
 Write-Host "Zoiper 5..." -ForegroundColor Yellow
 
 $zoiperInstalled = Get-ItemProperty "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\*","HKLM:\SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall\*" -ErrorAction SilentlyContinue | Where-Object { $_.DisplayName -like "*Zoiper*" }
@@ -214,10 +232,12 @@ if ($ZoiperUsername -and $ZoiperPassword) {
     Write-Host "Zoiper activation: skipped (no credentials provided)." -ForegroundColor DarkGray
 }
 Write-Host ""
+}
 
 # ---------------------------------------------------------------------------
 # Slack auto-start pointed at ag-atlas workspace
 # ---------------------------------------------------------------------------
+if (Should-Run "slack") {
 Write-Host "Slack startup config..." -ForegroundColor Yellow
 
 $slackExe = Get-ChildItem "C:\Program Files\Slack","C:\Program Files (x86)\Slack" -Filter "slack.exe" -Recurse -ErrorAction SilentlyContinue | Select-Object -First 1
@@ -229,10 +249,12 @@ if ($slackExe) {
     Write-Warning "  Slack executable not found. Auto-start not configured."
 }
 Write-Host ""
+}
 
 # ---------------------------------------------------------------------------
 # Chrome bookmarks and settings (via managed policy + initial_preferences)
 # ---------------------------------------------------------------------------
+if (Should-Run "googlechrome") {
 Write-Host "Chrome bookmarks & settings..." -ForegroundColor Yellow
 
 # 1. Bookmarks bar: always visible
@@ -328,6 +350,7 @@ if (Test-Path $chromePath) {
 
 Write-Host "  Done." -ForegroundColor Green
 Write-Host ""
+}
 
 Write-Host "========================================" -ForegroundColor Green
 Write-Host "  App installation complete!" -ForegroundColor Green
