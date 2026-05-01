@@ -112,6 +112,26 @@ if ($zoiperExePath) {
 Write-Host ""
 
 # ---------------------------------------------------------------------------
+# Suppress UAC prompt on first launch (RUNASINVOKER shim)
+# ---------------------------------------------------------------------------
+# Zoiper5.exe's manifest requests elevation, so first launch shows a UAC
+# prompt for standard users. The AppCompat RUNASINVOKER layer tells Windows
+# to ignore the elevation request and run as the invoking user.
+Write-Host "Setting RUNASINVOKER compat shim..." -ForegroundColor Yellow
+if ($zoiperExePath) {
+    $layersKey = "HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\AppCompatFlags\Layers"
+    if (-not (Test-Path $layersKey)) {
+        New-Item -Path $layersKey -Force | Out-Null
+    }
+    New-ItemProperty -Path $layersKey -Name $zoiperExePath -Value "~ RUNASINVOKER" `
+        -PropertyType String -Force | Out-Null
+    Write-Host "  RUNASINVOKER shim applied for $zoiperExePath" -ForegroundColor Green
+} else {
+    Write-Warning "  Zoiper5.exe not found. RUNASINVOKER shim not applied."
+}
+Write-Host ""
+
+# ---------------------------------------------------------------------------
 # Write SIP account config
 # ---------------------------------------------------------------------------
 Write-Host "Writing SIP config..." -ForegroundColor Yellow
@@ -124,6 +144,14 @@ function EscapeXml([string]$s) {
 $xml = @"
 <?xml version="1.0" encoding="utf-8"?>
 <options>
+  <general>
+    <!-- Both default to true. We disable to suppress the first-launch UAC
+         prompts that ask to elevate for Outlook plugin and callto:/sip:
+         protocol handler registration. We don't use Outlook integration,
+         and the protocol handler isn't worth the UAC cost. -->
+    <catch_protocol_requests>false</catch_protocol_requests>
+    <integrate_into_outlook>false</integrate_into_outlook>
+  </general>
   <accounts>
     <account>
       <ident>$(EscapeXml "$SipUser@$SipDomain")</ident>
