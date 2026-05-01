@@ -1,0 +1,75 @@
+#!/usr/bin/env bun
+//
+// Reset a user's GCPW state for re-testing first-login.
+//
+// Mac-side effects:
+//   - Resets the user's Google Workspace password (re-arms changePasswordAtNextLogin).
+//   - Moves the user back to the /AmeriGlide OU (out of /Exempt from MFA).
+//
+// Stdout: a PowerShell snippet that cleans Windows-side state (Win profile
+// + HKLM\SOFTWARE\Google\GCPW\Users entry). Pipe to pbcopy from bin/copy.
+//
+// Usage: bin/reset-user --user jim.soffe
+//
+
+import { parseArgs } from "util";
+import { getDirectoryClient } from "../src/onboard/lib/google";
+import { generateTempPassword } from "../src/onboard/lib/password";
+
+const { values } = parseArgs({
+  args: Bun.argv.slice(2),
+  options: { user: { type: "string" } },
+  strict: true,
+});
+
+const user = values.user;
+if (!user) {
+  console.error("Usage: bin/reset-user --user <username>");
+  process.exit(1);
+}
+const email = `${user}@ameriglide.com`;
+
+const password = generateTempPassword();
+const admin = await getDirectoryClient();
+
+console.error(`Resetting Google state for ${email}...`);
+await admin.users.update({
+  userKey: email,
+  requestBody: {
+    password,
+    changePasswordAtNextLogin: false,
+    orgUnitPath: "/",
+  },
+});
+
+console.error("");
+console.error("══════════════════════════════════════════");
+console.error(`  Email:    ${email}`);
+console.error(`  Password: ${password}`);
+console.error(`  OU:       / (root, AmeriGlide workspace)`);
+console.error(`  Must change at next sign-in: no (this temp IS the live password)`);
+console.error("══════════════════════════════════════════");
+console.error("");
+console.error("PowerShell snippet for the Windows box is on your clipboard.");
+console.error("Run it as local admin (not the user being reset).");
+
+// Stdout: PowerShell for clipboard
+// GCPW SAM-account naming: takes the email, replaces @ with _, drops the TLD.
+// e.g. jim.soffe@ameriglide.com -> jim.soffe_ameriglide
+process.stdout.write(`# Reset Windows-side GCPW state for ${email}
+# Run as local admin (not the user being reset).
+
+# 1. Remove the Windows profile
+Get-CimInstance Win32_UserProfile | Where-Object { $_.LocalPath -like "*${user}*" } | Remove-CimInstance
+Remove-Item "C:\\Users\\${user}" -Recurse -Force -ErrorAction SilentlyContinue
+
+# 2. Remove the local user account (GCPW names it <localpart>_<domain-no-tld>)
+Get-LocalUser | Where-Object { $_.Name -like "${user}_*" } | Remove-LocalUser
+
+# 3. Remove GCPW's user mapping so first-login flow runs again
+Get-ChildItem "HKLM:\\SOFTWARE\\Google\\GCPW\\Users" -ErrorAction SilentlyContinue | ForEach-Object {
+  $e = (Get-ItemProperty $_.PSPath -ErrorAction SilentlyContinue).email
+  if ($e -eq "${email}") { Remove-Item $_.PSPath -Recurse -Force }
+}
+Write-Host "Reset complete for ${email}."
+`);
