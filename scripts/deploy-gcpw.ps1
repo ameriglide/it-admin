@@ -72,13 +72,16 @@ param(
 
     [string]$BackupAdminPassword,
 
-    [switch]$SkipEndpointVerification
+    [switch]$SkipEndpointVerification,
+
+    [string]$WifiSsid,
+    [string]$WifiPassword
 )
 
 $ErrorActionPreference = "Stop"
 $ProgressPreference = "SilentlyContinue"
 # Stamped by pre-commit hook -- do not edit manually
-$Script:Revision = "2196a33"
+$Script:Revision = "032d265"
 
 Write-Host "deploy-gcpw.ps1 rev $Script:Revision" -ForegroundColor DarkGray
 
@@ -117,6 +120,12 @@ $GcpwProviderReg  = "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Authenticat
 $WebView2Reg      = "HKLM:\SOFTWARE\WOW6432Node\Microsoft\EdgeUpdate\Clients\{F3017226-FE2A-4295-8BDF-00C3A9A7E4C5}"
 $WebView2Url      = "https://go.microsoft.com/fwlink/p/?LinkId=2124703"
 $WebView2Path     = "$env:TEMP\MicrosoftEdgeWebview2Setup.exe"
+$ChromeUrl        = "https://dl.google.com/chrome/install/standalone/chrome_installer.exe"
+$ChromePath       = "$env:TEMP\chrome_installer.exe"
+$ChromeExePaths   = @(
+    "$env:ProgramFiles\Google\Chrome\Application\chrome.exe",
+    "${env:ProgramFiles(x86)}\Google\Chrome\Application\chrome.exe"
+)
 $JcAgentPath      = "C:\Program Files\JumpCloud"
 $JcUninstaller    = "C:\Program Files\JumpCloud\Uninstall.exe"
 
@@ -144,6 +153,134 @@ function Wait-ForServicingIdle {
     Write-Warning "  Servicing still busy after $TimeoutSeconds seconds. Proceeding anyway."
 }
 
+function Add-AllUserWifiProfile {
+    param(
+        [Parameter(Mandatory)][string]$Ssid,
+        [Parameter(Mandatory)][string]$Password,
+        [string]$AuthType = "WPA2PSK"
+    )
+    $xml = @"
+<?xml version="1.0"?>
+<WLANProfile xmlns="http://www.microsoft.com/networking/WLAN/profile/v1">
+  <name>$Ssid</name>
+  <SSIDConfig><SSID><name>$Ssid</name></SSID></SSIDConfig>
+  <connectionType>ESS</connectionType>
+  <connectionMode>auto</connectionMode>
+  <MSM><security>
+    <authEncryption><authentication>$AuthType</authentication><encryption>AES</encryption><useOneX>false</useOneX></authEncryption>
+    <sharedKey><keyType>passPhrase</keyType><protected>false</protected><keyMaterial>$Password</keyMaterial></sharedKey>
+  </security></MSM>
+</WLANProfile>
+"@
+    $tmp = "$env:TEMP\wifi-allusers.xml"
+    $xml | Out-File -FilePath $tmp -Encoding ASCII
+    netsh wlan delete profile name="$Ssid" | Out-Null
+    $addOut = netsh wlan add profile filename="$tmp" user=all 2>&1
+    Remove-Item $tmp -ErrorAction SilentlyContinue
+    if ($LASTEXITCODE -ne 0) {
+        Write-Warning "  Failed to add all-user profile for '$Ssid': $addOut"
+        return $false
+    }
+    return $true
+}
+
+function Set-WifiProfileAllUsers {
+    param(
+        [string]$PreferredSsid,
+        [string]$PreferredPassword
+    )
+    # GCPW can't reach Google at the sign-in screen if the active Wi-Fi profile
+    # is user-bound (default for Win11 OOBE-created profiles). Without pre-login
+    # network, the user sees "a network connection is needed" and login fails.
+    #
+    # Strategy:
+    #   1. If a preferred SSID is provided AND in range, install it as all-user.
+    #   2. Otherwise, convert the currently-connected profile to all-user
+    #      (extract password via netsh key=clear).
+    #   3. Skip cleanly for Ethernet-only or enterprise auth.
+
+    $iface = netsh wlan show interfaces 2>$null
+    if ($LASTEXITCODE -ne 0 -or -not $iface) {
+        Write-Host "  No Wi-Fi interface (likely Ethernet). Skipping." -ForegroundColor DarkGray
+        return
+    }
+
+    # Step 1: prefer the office Wi-Fi if visible
+    if ($PreferredSsid -and $PreferredPassword) {
+        netsh wlan show networks 2>$null | Out-Null  # trigger scan
+        Start-Sleep -Seconds 2
+        $networks = netsh wlan show networks 2>$null
+        if ($networks -match [regex]::Escape($PreferredSsid)) {
+            Write-Host "  Preferred Wi-Fi '$PreferredSsid' is in range. Installing as all-user."
+            if (Add-AllUserWifiProfile -Ssid $PreferredSsid -Password $PreferredPassword) {
+                netsh wlan connect name="$PreferredSsid" | Out-Null
+                Write-Host "  Connected to '$PreferredSsid' (all-user)." -ForegroundColor Green
+                return
+            }
+            Write-Warning "  Preferred SSID install failed; falling back to current connection."
+        } else {
+            Write-Host "  Preferred Wi-Fi '$PreferredSsid' not in range. Falling back to current connection." -ForegroundColor DarkGray
+        }
+    }
+
+    # Step 2: auto-detect currently connected profile
+    $ssidLine = $iface | Select-String '^\s*SSID\s*:\s*(.+?)\s*$' | Select-Object -First 1
+    if (-not $ssidLine) {
+        Write-Host "  No active Wi-Fi connection. Skipping." -ForegroundColor DarkGray
+        return
+    }
+    $ssid = $ssidLine.Matches[0].Groups[1].Value
+    Write-Host "  Active Wi-Fi: $ssid"
+
+    $profileText = netsh wlan show profile name="$ssid" 2>$null
+    if ($profileText -match 'All User Profile') {
+        Write-Host "  Profile already all-user. Skipping." -ForegroundColor Green
+        return
+    }
+
+    $clearText = netsh wlan show profile name="$ssid" key=clear 2>$null
+    $authLine = $clearText | Select-String '^\s*Authentication\s*:\s*(.+?)\s*$' | Select-Object -First 1
+    $auth = if ($authLine) { $authLine.Matches[0].Groups[1].Value } else { "" }
+    if ($auth -notmatch 'WPA') {
+        Write-Warning "  Auth '$auth' not WPA-PSK family. Can't safely re-add (likely enterprise). Skipping."
+        return
+    }
+    $keyLine = $clearText | Select-String '^\s*Key Content\s*:\s*(.+?)\s*$' | Select-Object -First 1
+    if (-not $keyLine) {
+        Write-Warning "  Could not extract Wi-Fi password. Skipping."
+        return
+    }
+    $key = $keyLine.Matches[0].Groups[1].Value
+    $authType = if ($auth -match 'WPA3') { 'WPA3SAE' } elseif ($auth -match 'WPA2') { 'WPA2PSK' } else { 'WPAPSK' }
+
+    if (Add-AllUserWifiProfile -Ssid $ssid -Password $key -AuthType $authType) {
+        netsh wlan connect name="$ssid" | Out-Null
+        Write-Host "  Wi-Fi profile is now all-user with auto-connect." -ForegroundColor Green
+    } else {
+        Write-Warning "  Original profile was deleted. Re-connect manually if needed."
+    }
+}
+
+function Install-Chrome {
+    # GCPW v138+ refuses to render its tile if Chrome isn't installed --
+    # gaia_credential_provider_filter.cc logs "Supported Chrome version not found"
+    # and returns no credential to LogonUI. Silent failure, takes hours to diagnose.
+    $existing = $ChromeExePaths | Where-Object { Test-Path $_ } | Select-Object -First 1
+    if ($existing) {
+        Write-Host "  Chrome already installed at $existing" -ForegroundColor Green
+        return
+    }
+    Write-Host "  Chrome not found. Installing (required by GCPW)..."
+    [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
+    Invoke-WebRequest -Uri $ChromeUrl -OutFile $ChromePath -UseBasicParsing
+    $process = Start-Process -FilePath $ChromePath -ArgumentList "/silent /install" -Wait -PassThru
+    if ($process.ExitCode -ne 0) {
+        Write-Warning "  Chrome install returned exit code $($process.ExitCode). GCPW tile may not render."
+    } else {
+        Write-Host "  Chrome installed." -ForegroundColor Green
+    }
+}
+
 function Install-WebView2 {
     # GCPW uses WebView2 to render the Google sign-in UI in LogonUI.
     # If it's missing, the credential provider loads but has nothing to draw with
@@ -165,6 +302,8 @@ function Install-WebView2 {
 }
 
 function Install-GCPW {
+    Set-WifiProfileAllUsers
+    Install-Chrome
     Install-WebView2
     Wait-ForServicingIdle
 
