@@ -27,6 +27,7 @@ export const googleStep: Step = {
         name: { givenName: ctx.firstName, familyName: ctx.lastName },
         password,
         changePasswordAtNextLogin: true,
+        orgUnitPath: "/Exempt from MFA",
       },
     });
 

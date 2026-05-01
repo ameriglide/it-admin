@@ -3,6 +3,10 @@ export interface Context {
   lastName: string;
   email: string;
   directLine: boolean | undefined; // true=yes, false=no, undefined=ask
+  forceChange?: boolean; // Force Google password change on next sign-in. Default: true.
+
+  // Phenix preselect (skip prompt when set):
+  phenixChannel?: string; // channel name, e.g. "Phone"
 
   // Populated by steps:
   googlePassword?: string | null; // null = already existed

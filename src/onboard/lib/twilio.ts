@@ -113,7 +113,6 @@ export async function searchLocalNumbers(
   if (areaCode) params.set("AreaCode", areaCode);
   if (inLocality) params.set("InLocality", inLocality);
   params.set("VoiceEnabled", "true");
-  params.set("SmsEnabled", "false");
   const url = `${BASE}/Accounts/${env.accountSid}/AvailablePhoneNumbers/US/Local.json?${params}`;
   const data = await twilioFetch(url);
   return data.available_phone_numbers.map((n: any) => ({

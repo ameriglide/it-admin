@@ -13,6 +13,7 @@ const { values } = parseArgs({
     email: { type: "string" },
     skip: { type: "string" },
     "direct-line": { type: "boolean", default: false },
+    channel: { type: "string" },
   },
   strict: true,
 });
@@ -36,6 +37,12 @@ const email =
 
 console.log(`\nOnboarding ${firstName} ${lastName} (${email})\n`);
 
-const ctx: Context = { firstName, lastName, email, directLine };
+const ctx: Context = {
+  firstName,
+  lastName,
+  email,
+  directLine,
+  phenixChannel: values.channel,
+};
 
 await run(ctx, skip);
