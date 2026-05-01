@@ -63,7 +63,7 @@ if (-not $TailscaleAuthKey) {
 $ErrorActionPreference = "Stop"
 $ProgressPreference = "SilentlyContinue"
 # Stamped by pre-commit hook -- do not edit manually
-$Script:Revision = "c4de0c8"
+$Script:Revision = "a12118a"
 
 Write-Host "install-apps.ps1 rev $Script:Revision" -ForegroundColor DarkGray
 
@@ -267,6 +267,23 @@ Set-ItemProperty -Path $chromePolicies -Name "DefaultBrowserSettingEnabled" -Val
 Write-Host "  Bookmarks bar enabled."
 Write-Host "  Chrome will prompt to be set as default browser."
 
+# Pre-grant permissions for our internal apps so users aren't prompted.
+# Pattern [*.]ameriglide.com covers phenix, remix, base, etc. Required for
+# remix.ameriglide.com's embedded Twilio Voice client (mic + autoplay) and
+# Phenix popups/notifications.
+$siteAllowlists = @{
+    "AudioCaptureAllowedUrls"      = "[*.]ameriglide.com"  # microphone
+    "NotificationsAllowedForUrls"  = "[*.]ameriglide.com"
+    "PopupsAllowedForUrls"         = "[*.]ameriglide.com"
+    "AutoplayAllowlist"            = "[*.]ameriglide.com"  # so call audio plays without click
+}
+foreach ($policy in $siteAllowlists.GetEnumerator()) {
+    $sub = "$chromePolicies\$($policy.Key)"
+    if (-not (Test-Path $sub)) { New-Item -Path $sub -Force | Out-Null }
+    Set-ItemProperty -Path $sub -Name "1" -Value $policy.Value -Type String
+}
+Write-Host "  Granted mic/popups/notifications/autoplay for [*.]ameriglide.com."
+
 # Auto-start Chrome to Phenix CRM on login
 $chromeExe = "C:\Program Files\Google\Chrome\Application\chrome.exe"
 if (Test-Path $chromeExe) {
@@ -275,32 +292,11 @@ if (Test-Path $chromeExe) {
     Write-Host "  Chrome will auto-start at login (phenix.ameriglide.com)."
 }
 
-# 2. Managed bookmarks - flat on the bar, no folders.
-#    javascript: URLs are blocked in managed bookmarks, so Quote Me goes
-#    directly into the Bookmarks file via initial_preferences instead.
-$managedBookmarks = @(
-    @{ toplevel_name = "Bookmarks" }
-    @{ name = "AmeriGlide";       url = "https://www.ameriglide.com" }
-    @{ name = "Phenix CRM";       url = "https://phenix.ameriglide.com" }
-    @{ name = "Remix CRM";        url = "https://remix.ameriglide.com" }
-    @{ name = "Base";             url = "https://base.inetalliance.net" }
-    @{ name = "Gmail";            url = "https://mail.google.com" }
-    @{ name = "Calendar";         url = "https://calendar.google.com" }
-    @{ name = "Drive";            url = "https://drive.google.com" }
-    @{ name = "Docs";             url = "https://docs.google.com" }
-    @{ name = "Sheets";           url = "https://sheets.google.com" }
-    @{ name = "Meet";             url = "https://meet.google.com" }
-    @{ name = "ADP (Payroll/PTO)"; url = "https://my.adp.com" }
-    @{ name = "401k";             url = "https://mykplan.com" }
-) | ConvertTo-Json -Depth 2 -Compress
-
-Set-ItemProperty -Path $chromePolicies -Name "ManagedBookmarks" -Value $managedBookmarks -Type String
-Write-Host "  Managed bookmarks configured."
-
-# 3. Quote Me bookmarklet + initial_preferences.
-#    Write the Bookmarks JSON file directly into the Default profile template
-#    instead of using import_bookmarks_from_file (which dumps into an
-#    "Imported" folder instead of the bar).
+# 2. Bookmarks bar entries — written directly into the Default profile's
+#    Bookmarks JSON so they appear flat on the bar, not nested in a folder.
+#    (The ManagedBookmarks policy ALWAYS nests entries inside a folder, which
+#    is why we don't use it here. Also: javascript: URLs are blocked in
+#    managed bookmarks, so Quote Me has to be in the JSON anyway.)
 $chromePath = "C:\Program Files\Google\Chrome\Application"
 if (Test-Path $chromePath) {
     $initialPrefs = @{
@@ -318,35 +314,50 @@ if (Test-Path $chromePath) {
     Set-Content -Path "$chromePath\initial_preferences" -Value $initialPrefs -Encoding UTF8
     Write-Host "  initial_preferences written (bookmarks bar on)."
 
-    # Pre-create the Default profile Bookmarks file with Quote Me on the bar.
-    # Chrome merges this with managed bookmarks on first launch.
+    # Build the bookmark bar children list.
+    $barEntries = @(
+        @{ name = "Phenix CRM";        url = "https://phenix.ameriglide.com" }
+        @{ name = "Remix CRM";         url = "https://remix.ameriglide.com" }
+        @{ name = "Base";              url = "https://base.inetalliance.net" }
+        @{ name = "AmeriGlide";        url = "https://www.ameriglide.com" }
+        @{ name = "Gmail";             url = "https://mail.google.com" }
+        @{ name = "Calendar";          url = "https://calendar.google.com" }
+        @{ name = "Drive";             url = "https://drive.google.com" }
+        @{ name = "Docs";              url = "https://docs.google.com" }
+        @{ name = "Sheets";            url = "https://sheets.google.com" }
+        @{ name = "ADP (Payroll/PTO)"; url = "https://my.adp.com" }
+        @{ name = "401k";              url = "https://mykplan.com" }
+        @{ name = "Quote Me";          url = "javascript:createQuote()" }
+    ) | ForEach-Object {
+        @{ name = $_.name; type = "url"; url = $_.url }
+    }
+
+    $bookmarks = @{
+        roots = @{
+            bookmark_bar = @{
+                children = $barEntries
+                name = "Bookmarks bar"
+                type = "folder"
+            }
+            other = @{ children = @(); name = "Other bookmarks"; type = "folder" }
+            synced = @{ children = @(); name = "Mobile bookmarks"; type = "folder" }
+        }
+        version = 1
+    } | ConvertTo-Json -Depth 6
+
+    # Pre-seed the Default profile Bookmarks file so new users get the bar
+    # populated when their profile is created on first sign-in.
     $defaultProfile = "$env:SystemDrive\Users\Default\AppData\Local\Google\Chrome\User Data\Default"
     New-Item -Path $defaultProfile -ItemType Directory -Force -ErrorAction SilentlyContinue | Out-Null
-    $bookmarksJson = @'
-{
-   "roots": {
-      "bookmark_bar": {
-         "children": [
-            {
-               "name": "Quote Me",
-               "type": "url",
-               "url": "javascript:createQuote()"
-            }
-         ],
-         "name": "Bookmarks bar",
-         "type": "folder"
-      },
-      "other": { "children": [], "name": "Other bookmarks", "type": "folder" },
-      "synced": { "children": [], "name": "Mobile bookmarks", "type": "folder" }
-   },
-   "version": 1
-}
-'@
-    Set-Content -Path "$defaultProfile\Bookmarks" -Value $bookmarksJson -Encoding UTF8
-    Write-Host "  Quote Me bookmarklet placed on bookmarks bar."
+    Set-Content -Path "$defaultProfile\Bookmarks" -Value $bookmarks -Encoding UTF8
+    Write-Host "  Bookmarks bar populated ($($barEntries.Count) entries)."
 } else {
-    Write-Warning "  Chrome not found at $chromePath. Skipping initial_preferences."
+    Write-Warning "  Chrome not found at $chromePath. Skipping bookmark setup."
 }
+
+# Clean up any prior ManagedBookmarks policy from earlier installs (it would
+# show as a "Bookmarks" folder on the bar and duplicate everything).
+Remove-ItemProperty -Path $chromePolicies -Name "ManagedBookmarks" -ErrorAction SilentlyContinue
 
 Write-Host "  Done." -ForegroundColor Green
 Write-Host ""
