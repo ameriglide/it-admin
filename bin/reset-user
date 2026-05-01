@@ -18,36 +18,46 @@ import { generateTempPassword } from "../src/onboard/lib/password";
 
 const { values } = parseArgs({
   args: Bun.argv.slice(2),
-  options: { user: { type: "string" } },
+  options: {
+    user: { type: "string" },
+    "no-force-change": { type: "boolean", default: false },
+  },
   strict: true,
 });
 
 const user = values.user;
 if (!user) {
-  console.error("Usage: bin/reset-user --user <username>");
+  console.error("Usage: bin/reset-user --user <username> [--no-force-change]");
   process.exit(1);
 }
 const email = `${user}@ameriglide.com`;
+const forceChange = !values["no-force-change"];
 
 const password = generateTempPassword();
 const admin = await getDirectoryClient();
 
 console.error(`Resetting Google state for ${email}...`);
-await admin.users.update({
-  userKey: email,
-  requestBody: {
-    password,
-    changePasswordAtNextLogin: false,
-    orgUnitPath: "/",
-  },
-});
+const current = await admin.users.get({ userKey: email });
+const requestBody: Record<string, unknown> = {
+  password,
+  changePasswordAtNextLogin: forceChange,
+};
+// Only move the user out of /Exempt from MFA when force-change is on (i.e.
+// real reset, ready for 2SV enforcement). With --no-force-change (testing),
+// keep them in their current OU so they can keep signing in without being
+// dumped into the root org's immediate-2SV-enrollment policy.
+const targetOu = "/";
+if (forceChange && current.data.orgUnitPath !== targetOu) {
+  requestBody.orgUnitPath = targetOu;
+}
+await admin.users.update({ userKey: email, requestBody });
 
 console.error("");
 console.error("══════════════════════════════════════════");
 console.error(`  Email:    ${email}`);
 console.error(`  Password: ${password}`);
 console.error(`  OU:       / (root, AmeriGlide workspace)`);
-console.error(`  Must change at next sign-in: no (this temp IS the live password)`);
+console.error(`  Must change at next sign-in: ${forceChange ? "yes" : "no (--no-force-change set; this temp IS the live password)"}`);
 console.error("══════════════════════════════════════════");
 console.error("");
 console.error("PowerShell snippet for the Windows box is on your clipboard.");

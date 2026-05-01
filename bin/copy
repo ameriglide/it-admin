@@ -50,7 +50,7 @@ install_apps() {
 
 reset_gcpw_user() {
   local user
-  user=$(gum input --placeholder "jim.soffe" --header "Reset GCPW state for which user? (username only)" </dev/tty)
+  user=$(gum input --placeholder "first.last" --header "Reset GCPW state for which user? (username only — type and press Enter)" </dev/tty)
   [[ -z "$user" ]] && return 1
 
   # bin/reset-user does the Mac-side ops (password reset + OU move) and
