@@ -63,7 +63,7 @@ if (-not $TailscaleAuthKey) {
 $ErrorActionPreference = "Stop"
 $ProgressPreference = "SilentlyContinue"
 # Stamped by pre-commit hook -- do not edit manually
-$Script:Revision = "a12118a"
+$Script:Revision = "f1e6015"
 
 Write-Host "install-apps.ps1 rev $Script:Revision" -ForegroundColor DarkGray
 
@@ -284,12 +284,15 @@ foreach ($policy in $siteAllowlists.GetEnumerator()) {
 }
 Write-Host "  Granted mic/popups/notifications/autoplay for [*.]ameriglide.com."
 
-# Auto-start Chrome to Phenix CRM on login
+# Auto-start Chrome at login. First tab is Google's 2-Step Verification page
+# so new users can't miss the enrollment flow during the AmeriGlide
+# enforcement grace period. Once enrolled, this URL shows "you're enrolled"
+# and can just be closed. Phenix opens as the second tab for daily use.
 $chromeExe = "C:\Program Files\Google\Chrome\Application\chrome.exe"
 if (Test-Path $chromeExe) {
     Set-ItemProperty "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Run" -Name "Chrome" `
-        -Value "`"$chromeExe`" https://phenix.ameriglide.com" -Type String
-    Write-Host "  Chrome will auto-start at login (phenix.ameriglide.com)."
+        -Value "`"$chromeExe`" https://myaccount.google.com/signinoptions/two-step-verification https://phenix.ameriglide.com" -Type String
+    Write-Host "  Chrome will auto-start at login (2SV setup + phenix.ameriglide.com)."
 }
 
 # 2. Bookmarks bar entries — written directly into the Default profile's
