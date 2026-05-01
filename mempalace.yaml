@@ -1,0 +1,18 @@
+wing: it-admin
+rooms:
+  - name: src
+    description: Main source code
+    keywords:
+      - src
+  - name: scripts
+    description: Scripts and tooling
+    keywords:
+      - scripts
+  - name: docs
+    description: Documentation
+    keywords:
+      - docs
+  - name: installers
+    description: Installers
+    keywords:
+      - installers
