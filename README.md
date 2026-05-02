@@ -31,6 +31,16 @@ Reboot, verify Google login works and existing profile is intact, then:
 & $env:TEMP\deploy-gcpw.ps1 -Phase 2
 ```
 
+### sage-amg cutover (Windows Server 2022 RDP host)
+
+Server-specific cutover for `sage-amg`. Configures cross-domain GCPW (`ameriglide.com,atlasacces.com`), pre-associates existing JumpCloud-provisioned local accounts with their Google emails so SAM names are reused, disables RDP NLA so the Google tile renders through RDP, and removes JumpCloud.
+
+```powershell
+Set-ExecutionPolicy Bypass -Scope Process -Force; irm https://raw.githubusercontent.com/ameriglide/it-admin/main/scripts/deploy-gcpw-sage-amg.ps1 -OutFile $env:TEMP\deploy-gcpw-sage-amg.ps1; & $env:TEMP\deploy-gcpw-sage-amg.ps1
+```
+
+Use `-SkipJumpCloudRemoval` to install GCPW alongside JumpCloud first, validate sign-in, then re-run without the flag to remove JumpCloud.
+
 ### Repair (GCPW installed but no Google tile on login)
 
 If the script ran successfully but the Google login option doesn't appear on the sign-in screen, do a clean reinstall:
