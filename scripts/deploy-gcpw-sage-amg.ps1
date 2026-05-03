@@ -54,7 +54,7 @@ param(
 $ErrorActionPreference = "Stop"
 $ProgressPreference = "SilentlyContinue"
 # Stamped by pre-commit hook -- do not edit manually
-$Script:Revision = ""
+$Script:Revision = "5902928"
 
 Write-Host "deploy-gcpw-sage-amg.ps1 rev $Script:Revision" -ForegroundColor DarkGray
 $osInfo = Get-ItemProperty "HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion"
@@ -80,8 +80,8 @@ $GcpwProviderReg  = "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Authenticat
 $WebView2Reg      = "HKLM:\SOFTWARE\WOW6432Node\Microsoft\EdgeUpdate\Clients\{F3017226-FE2A-4295-8BDF-00C3A9A7E4C5}"
 $WebView2Url      = "https://go.microsoft.com/fwlink/p/?LinkId=2124703"
 $WebView2Path     = "$env:TEMP\MicrosoftEdgeWebview2Setup.exe"
-$ChromeUrl        = "https://dl.google.com/chrome/install/standalone/chrome_installer.exe"
-$ChromePath       = "$env:TEMP\chrome_installer.exe"
+$ChromeUrl        = "https://dl.google.com/dl/chrome/install/googlechromestandaloneenterprise64.msi"
+$ChromePath       = "$env:TEMP\chrome_enterprise.msi"
 $ChromeExePaths   = @(
     "$env:ProgramFiles\Google\Chrome\Application\chrome.exe",
     "${env:ProgramFiles(x86)}\Google\Chrome\Application\chrome.exe"
@@ -143,10 +143,10 @@ function Install-Chrome {
         Write-Host "  Chrome already installed at $existing" -ForegroundColor Green
         return
     }
-    Write-Host "  Chrome not found. Installing (required by GCPW)..."
+    Write-Host "  Chrome not found. Installing Chrome Enterprise MSI (required by GCPW)..."
     [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
     Invoke-WebRequest -Uri $ChromeUrl -OutFile $ChromePath -UseBasicParsing
-    $process = Start-Process -FilePath $ChromePath -ArgumentList "/silent /install" -Wait -PassThru
+    $process = Start-Process msiexec.exe -ArgumentList "/i `"$ChromePath`" /qn /norestart" -Wait -PassThru
     if ($process.ExitCode -ne 0) {
         Write-Warning "  Chrome install returned exit code $($process.ExitCode). GCPW tile may not render."
     } else {
