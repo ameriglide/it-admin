@@ -10,12 +10,12 @@
       1. Installs GCPW + configures it for the cross-domain (ameriglide.com,
          atlasacces.com) login set sage-amg needs.
       2. Pre-populates GCPW user-SID associations so existing JC-provisioned
-         local accounts (`first.last`) get reused — no orphan profiles.
+         local accounts (`first.last`) get reused - no orphan profiles.
       3. Disables RDP NLA so the GCPW OAuth tile renders through the RDP login
          screen on first sign-in. Tailscale ACLs gate reachability, so this is
          a small security delta. Once each user has signed in once, GCPW keeps
          their local Windows password in sync with their Google password and
-         NLA-RDP works again — but we leave NLA off since this is a multi-user
+         NLA-RDP works again - but we leave NLA off since this is a multi-user
          RDP host where new users keep onboarding.
       4. Removes JumpCloud Agent + JumpCloud Remote Assist + scheduled tasks +
          registry + on-disk artifacts. Local user accounts are NOT touched.
@@ -54,7 +54,7 @@ param(
 $ErrorActionPreference = "Stop"
 $ProgressPreference = "SilentlyContinue"
 # Stamped by pre-commit hook -- do not edit manually
-$Script:Revision = "5902928"
+$Script:Revision = "c58b900"
 
 Write-Host "deploy-gcpw-sage-amg.ps1 rev $Script:Revision" -ForegroundColor DarkGray
 $osInfo = Get-ItemProperty "HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion"
@@ -469,14 +469,14 @@ Write-Host "========================================" -ForegroundColor Green
 Write-Host "  sage-amg cutover complete." -ForegroundColor Green
 Write-Host "========================================" -ForegroundColor Green
 Write-Host ""
-Write-Host "USER COMMS — paste into the announcement:" -ForegroundColor Yellow
+Write-Host "USER COMMS - paste into the announcement:" -ForegroundColor Yellow
 Write-Host ""
 Write-Host "  RDP to sage-amg has switched to Google sign-in."
 Write-Host ""
 Write-Host "  When you connect, you'll see the full Windows login screen"
 Write-Host "  (not the small NLA prompt). Click the Google tile and sign in"
 Write-Host "  with your @ameriglide.com account. After that, your sage-amg"
-Write-Host "  password is your Google password — no extra step on next sign-in."
+Write-Host "  password is your Google password - no extra step on next sign-in."
 Write-Host ""
 Write-Host "  victor: use your @atlasacces.com account."
 Write-Host "  phil: use phil.vandal@ameriglide.com."
