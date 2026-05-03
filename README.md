@@ -41,6 +41,14 @@ Set-ExecutionPolicy Bypass -Scope Process -Force; irm https://raw.githubusercont
 
 Use `-SkipJumpCloudRemoval` to install GCPW alongside JumpCloud first, validate sign-in, then re-run without the flag to remove JumpCloud.
 
+### sage-iai cutover (Windows Server 2022 RDP host, Internet Alliance)
+
+Sister script for `sage-iai`. Single-domain GCPW (`inetalliance.net`). Same `-SkipJumpCloudRemoval` staging pattern.
+
+```powershell
+Set-ExecutionPolicy Bypass -Scope Process -Force; irm https://raw.githubusercontent.com/ameriglide/it-admin/main/scripts/deploy-gcpw-sage-iai.ps1 -OutFile $env:TEMP\deploy-gcpw-sage-iai.ps1; & $env:TEMP\deploy-gcpw-sage-iai.ps1
+```
+
 ### Repair (GCPW installed but no Google tile on login)
 
 If the script ran successfully but the Google login option doesn't appear on the sign-in screen, do a clean reinstall:
