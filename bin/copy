@@ -113,6 +113,21 @@ zoiper_setup() {
   echo "$cmd"
 }
 
+sage_amg_onboard() {
+  local user
+  user=$(gum input --placeholder "first.last" --header "sage-amg onboard: enter username" </dev/tty)
+  [[ -z "$user" ]] && return 1
+
+  local pass
+  pass=$(gum input --password --header "Password (use the same one set on their Google account)" </dev/tty)
+  [[ -z "$pass" ]] && return 1
+
+  # Escape single-quotes for safe embedding inside PS '...' literal.
+  local pass_escaped="${pass//\'/\'\'}"
+
+  echo "Set-ExecutionPolicy Bypass -Scope Process -Force; irm https://raw.githubusercontent.com/ameriglide/it-admin/main/scripts/onboard-sage-amg-user.ps1 -OutFile \$env:TEMP\\onboard-sage-amg-user.ps1; & \$env:TEMP\\onboard-sage-amg-user.ps1 -SamName ${user} -Password '${pass_escaped}'"
+}
+
 install_tailscale() {
   local key="${TAILSCALE_AUTH_KEY:-}"
   if [[ -z "$key" ]]; then
@@ -162,6 +177,7 @@ LABELS=(
   "Install apps (with Tailscale key)"
   "Tailscale — install + join (only)"
   "Zoiper — install + configure..."
+  "sage-amg — onboard new user..."
   "JumpCloud to GCPW — phase 1..."
   "JumpCloud to GCPW — phase 2"
   "Tailscale — join network (from .env)"
@@ -176,6 +192,7 @@ dispatch() {
     "Install apps (with Tailscale key)")        install_apps ;;
     "Tailscale — install + join (only)")        install_tailscale ;;
     "Zoiper — install + configure...")             zoiper_setup ;;
+    "sage-amg — onboard new user...")           sage_amg_onboard ;;
     "JumpCloud to GCPW — phase 1...")              migration_phase1 ;;
     "JumpCloud to GCPW — phase 2")               migration_phase2 ;;
     "Tailscale — join network (from .env)")            tailscale_key ;;
