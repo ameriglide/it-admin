@@ -23,6 +23,20 @@ export async function run(
 ): Promise<void> {
   const completed: string[] = [];
 
+  // Tenants without Twilio (e.g. inetalliance.net) leave TWILIO_ACCOUNT_SID
+  // unset; auto-skip Twilio and the steps that consume its SIP credentials
+  // so the run stays quiet about telephony rather than failing on a missing
+  // env var.
+  if (!process.env.TWILIO_ACCOUNT_SID) {
+    const telephonySkips = ["twilio", "directline", "zoiper"];
+    for (const s of telephonySkips) {
+      if (!skip.includes(s)) skip.push(s);
+    }
+    console.log(
+      "  (TWILIO_ACCOUNT_SID unset - skipping Twilio, Direct Line, Zoiper)",
+    );
+  }
+
   try {
     for (const step of steps) {
       const stepKey = step.name.toLowerCase().replace(/\s+/g, "");

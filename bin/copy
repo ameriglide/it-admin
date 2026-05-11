@@ -18,6 +18,11 @@ fi
 # Workspace domain — used to build user@<domain> emails in PS one-liners.
 : "${DOMAIN:=ameriglide.com}"
 
+# Brand label and storefront URL — passed to install-apps.ps1 to brand the
+# ProgramData launcher dir, 2SV flag, and bookmark bar storefront entry.
+: "${BRAND:=AmeriGlide}"
+: "${MARKETING_URL:=https://www.ameriglide.com}"
+
 # ---------------------------------------------------------------------------
 # Menu entries: label → payload (computed lazily via functions)
 # ---------------------------------------------------------------------------
@@ -42,7 +47,7 @@ install_apps() {
   fi
   local zuser="${ZOIPER_USERNAME:-}"
   local zpass="${ZOIPER_PASSWORD:-}"
-  local cmd="Set-ExecutionPolicy Bypass -Scope Process -Force; irm https://raw.githubusercontent.com/ameriglide/it-admin/main/scripts/install-apps.ps1 -OutFile \$env:TEMP\\install-apps.ps1; & \$env:TEMP\\install-apps.ps1 -Domain ${DOMAIN} -TailscaleAuthKey \"$key\""
+  local cmd="Set-ExecutionPolicy Bypass -Scope Process -Force; irm https://raw.githubusercontent.com/ameriglide/it-admin/main/scripts/install-apps.ps1 -OutFile \$env:TEMP\\install-apps.ps1; & \$env:TEMP\\install-apps.ps1 -Domain ${DOMAIN} -Brand \"${BRAND}\" -MarketingUrl \"${MARKETING_URL}\" -TailscaleAuthKey \"$key\""
   if [[ -n "$zuser" && -n "$zpass" ]]; then
     cmd="$cmd -ZoiperUsername \"$zuser\" -ZoiperPassword \"$zpass\""
   else
