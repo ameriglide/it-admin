@@ -31,9 +31,10 @@ if (!firstName || !lastName) {
   process.exit(1);
 }
 
+const domain = process.env.DOMAIN ?? "ameriglide.com";
 const email =
   values.email ??
-  `${firstName.toLowerCase()}.${lastName.toLowerCase()}@ameriglide.com`;
+  `${firstName.toLowerCase()}.${lastName.toLowerCase()}@${domain}`;
 
 console.log(`\nOnboarding ${firstName} ${lastName} (${email})\n`);
 

@@ -30,7 +30,8 @@ if (!user) {
   console.error("Usage: bin/reset-user --user <username> [--no-force-change]");
   process.exit(1);
 }
-const email = `${user}@ameriglide.com`;
+const domain = process.env.DOMAIN ?? "ameriglide.com";
+const email = `${user}@${domain}`;
 const forceChange = !values["no-force-change"];
 
 const password = generateTempPassword();
@@ -65,7 +66,8 @@ console.error("Run it as local admin (not the user being reset).");
 
 // Stdout: PowerShell for clipboard
 // GCPW SAM-account naming: takes the email, replaces @ with _, drops the TLD.
-// e.g. jim.soffe@ameriglide.com -> jim.soffe_ameriglide
+// e.g. jim.soffe@ameriglide.com -> jim.soffe_ameriglide,
+//      jim.soffe@inetalliance.net -> jim.soffe_inetalliance
 process.stdout.write(`# Reset Windows-side GCPW state for ${email}
 # Run as local admin (not the user being reset).
 

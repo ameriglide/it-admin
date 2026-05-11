@@ -46,7 +46,9 @@ export const twilioStep: Step = {
     // Phenix stores encrypted bytes as uppercase hex in a text column
     const secretHex = encryptedSecret.toString("hex").toUpperCase();
 
-    const sipUri = `sip:${sipUser}@ameriglide.pstn.twilio.com`;
+    const pstnDomain =
+      process.env.TWILIO_PSTN_DOMAIN ?? "ameriglide.pstn.twilio.com";
+    const sipUri = `sip:${sipUser}@${pstnDomain}`;
 
     await sql`
       UPDATE agent

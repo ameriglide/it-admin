@@ -29,6 +29,12 @@
     Valid values match the choco IDs: googlechrome, adobereader, slack, tailscale, googledrive, zoiper.
     Example: -Only tailscale
 
+.PARAMETER Domain
+    Google Workspace domain for the tenant this workstation belongs to
+    (e.g. ameriglide.com, inetalliance.net). Used to scope Chrome site-permission
+    allowlists ([*.]<Domain>) for mic/popups/notifications/autoplay.
+    Defaults to ameriglide.com.
+
 .EXAMPLE
     .\install-apps.ps1 -TailscaleAuthKey "tskey-auth-abc123" -ZoiperUsername "user@example.com" -ZoiperPassword "secret"
 
@@ -40,7 +46,8 @@ param(
     [string]$TailscaleAuthKey,
     [string]$ZoiperUsername,
     [string]$ZoiperPassword,
-    [string[]]$Only = @()
+    [string[]]$Only = @(),
+    [string]$Domain = "ameriglide.com"
 )
 
 $OnlyMode = $Only.Count -gt 0
@@ -63,7 +70,7 @@ if (-not $TailscaleAuthKey) {
 $ErrorActionPreference = "Stop"
 $ProgressPreference = "SilentlyContinue"
 # Stamped by pre-commit hook -- do not edit manually
-$Script:Revision = "f0d522b"
+$Script:Revision = "a22aa8d"
 
 Write-Host "install-apps.ps1 rev $Script:Revision" -ForegroundColor DarkGray
 
@@ -268,21 +275,22 @@ Write-Host "  Bookmarks bar enabled."
 Write-Host "  Chrome will prompt to be set as default browser."
 
 # Pre-grant permissions for our internal apps so users aren't prompted.
-# Pattern [*.]ameriglide.com covers phenix, remix, base, etc. Required for
-# remix.ameriglide.com's embedded Twilio Voice client (mic + autoplay) and
-# Phenix popups/notifications.
+# Pattern [*.]<Domain> covers tenant-internal hosts (phenix/remix for ameriglide,
+# crm/callgrove for inetalliance, etc). Required for embedded WebRTC voice
+# clients (mic + autoplay) and CRM popups/notifications.
+$siteGlob = "[*.]$Domain"
 $siteAllowlists = @{
-    "AudioCaptureAllowedUrls"      = "[*.]ameriglide.com"  # microphone
-    "NotificationsAllowedForUrls"  = "[*.]ameriglide.com"
-    "PopupsAllowedForUrls"         = "[*.]ameriglide.com"
-    "AutoplayAllowlist"            = "[*.]ameriglide.com"  # so call audio plays without click
+    "AudioCaptureAllowedUrls"      = $siteGlob  # microphone
+    "NotificationsAllowedForUrls"  = $siteGlob
+    "PopupsAllowedForUrls"         = $siteGlob
+    "AutoplayAllowlist"            = $siteGlob  # so call audio plays without click
 }
 foreach ($policy in $siteAllowlists.GetEnumerator()) {
     $sub = "$chromePolicies\$($policy.Key)"
     if (-not (Test-Path $sub)) { New-Item -Path $sub -Force | Out-Null }
     Set-ItemProperty -Path $sub -Name "1" -Value $policy.Value -Type String
 }
-Write-Host "  Granted mic/popups/notifications/autoplay for [*.]ameriglide.com."
+Write-Host "  Granted mic/popups/notifications/autoplay for $siteGlob."
 
 # Auto-start Chrome at login. We use a tiny wrapper script (per-user flag
 # file) so the first login gets the 2-Step Verification setup tab front and
@@ -319,8 +327,8 @@ if (-not (Test-Path `$flag)) {
 }
 
 # Sage AMG RDP shortcut on Public Desktop. Same wrapper-script pattern as
-# Chrome — derives the user's sage-amg\<first.last> credential from their
-# GCPW SAM name (jim.soffe_ameriglide → jim.soffe) and launches mstsc with
+# Chrome - derives the user's sage-amg\<first.last> credential from their
+# GCPW SAM name (jim.soffe_ameriglide -> jim.soffe) and launches mstsc with
 # a generated .rdp file. sage-amg resolves over Tailscale MagicDNS.
 $amgDir = "C:\ProgramData\AmeriGlide"
 if (-not (Test-Path $amgDir)) { New-Item -Path $amgDir -ItemType Directory -Force | Out-Null }
@@ -353,7 +361,7 @@ $shortcut.Description = "Connect to sage-amg via RDP (over Tailscale)"
 $shortcut.Save()
 Write-Host "  Sage AMG RDP shortcut placed on Public Desktop."
 
-# 2. Bookmarks bar entries — written directly into the Default profile's
+# 2. Bookmarks bar entries - written directly into the Default profile's
 #    Bookmarks JSON so they appear flat on the bar, not nested in a folder.
 #    (The ManagedBookmarks policy ALWAYS nests entries inside a folder, which
 #    is why we don't use it here. Also: javascript: URLs are blocked in
