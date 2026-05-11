@@ -134,3 +134,29 @@ export async function buyNumber(phoneNumber: string): Promise<string> {
   });
   return data.sid;
 }
+
+async function twilioDelete(url: string): Promise<void> {
+  const env = getEnv();
+  const res = await fetch(url, {
+    method: "DELETE",
+    headers: { ...authHeaders(env) },
+  });
+  if (!res.ok && res.status !== 404) {
+    const body = await res.text();
+    throw new Error(`Twilio API ${res.status}: ${body}`);
+  }
+}
+
+export async function deleteWorker(workerSid: string): Promise<void> {
+  const env = getEnv();
+  await twilioDelete(
+    `${TASKROUTER}/Workspaces/${env.workspaceSid}/Workers/${workerSid}?ReevaluateTasks=true`,
+  );
+}
+
+export async function deleteCredential(credentialSid: string): Promise<void> {
+  const env = getEnv();
+  await twilioDelete(
+    `${BASE}/Accounts/${env.accountSid}/SIP/CredentialLists/${env.credentialListSid}/Credentials/${credentialSid}.json`,
+  );
+}

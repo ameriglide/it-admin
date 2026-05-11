@@ -74,3 +74,30 @@ Set-ExecutionPolicy Bypass -Scope Process -Force; irm https://raw.githubusercont
 ```
 
 If you omit `-TailscaleAuthKey`, the script will prompt for it and refuse to continue without one.
+
+## Employee Provisioning
+
+### Onboard a new employee
+
+```sh
+bin/onboard --first <First> --last <Last>
+```
+
+Walks through Google Workspace user creation, Amberjack employee row, Phenix agent, Twilio worker + SIP credential, optional direct line, and Zoiper config. Idempotent — re-run to resume after a failure.
+
+### Offboard a departing employee
+
+```sh
+bin/offboard --email <addr>
+# or
+bin/offboard --first <First> --last <Last>
+```
+
+Mirror of onboard. Tears down Phenix (via Remix `setAgentInactive` mutation), Twilio worker and SIP credential, Amberjack `locked = true`, then Google: GYB mailbox backup → user delete with Drive transfer to manager → recreate address as an archive Group → load mail archive back into the group.
+
+Flags:
+- `--manager <addr>` — skip the interactive manager picker and use this address as the Drive transfer target.
+- `--dry-run` — run every `check()` without executing destructive operations.
+- `--skip <step,step>` — comma-separated step names to skip (`phenix`, `twilio`, `amberjack`, `google`).
+
+Prerequisites: `gyb` installed on PATH, `REMIX_GRAPHQL_URL` + `REMIX_API_KEY` env vars set (see `docs/remix-offboard-api-handoff.md` for the Remix-side endpoints this depends on).

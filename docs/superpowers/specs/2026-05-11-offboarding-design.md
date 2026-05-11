@@ -2,7 +2,7 @@
 
 ## Goal
 
-Add `bin/offboard` to `ag-admin` — the symmetric counterpart to `bin/onboard` — that tears down a departing employee's accounts across Google Workspace, Slack, Amberjack, Phenix (via Remix GraphQL), and Twilio, in a single idempotent run.
+Add `bin/offboard` to `ag-admin` — the symmetric counterpart to `bin/onboard` — that tears down a departing employee's accounts across Google Workspace, Amberjack, Phenix (via Remix GraphQL), and Twilio, in a single idempotent run.
 
 The immediate driver is two real users: **Jim Soffe** (full fresh offboarding) and **Kevin Dougherty** (already mostly gone; just leftover active row in Phenix making him appear in the dial-button HUD). The design must handle both as the same code path — re-running the offboard script on Kevin should detect everything else is clean and only flip Phenix.
 
@@ -33,14 +33,12 @@ src/offboard/
     gyb.ts              # NEW — wraps gyb CLI via Bun.spawn
     google.ts           # NEW — Directory + Groups + Groups Settings clients
     remix.ts            # NEW — GraphQL client over Remix
-    slack.ts            # NEW — Slack admin API client
     manager.ts          # NEW — picker over salesManagers GraphQL query
   steps/
     phenix.ts           # 1. setAgentInactive mutation
-    slack.ts            # 2. deactivate Slack user
-    twilio.ts           # 3. delete worker + delete SIP credential
-    amberjack.ts        # 4. locked = true
-    google.ts           # 5. GYB backup → delete w/ transfer → group create → settings → load archive
+    twilio.ts           # 2. delete worker + delete SIP credential
+    amberjack.ts        # 3. locked = true
+    google.ts           # 4. GYB backup → delete w/ transfer → group create → settings → load archive
 bin/
   offboard              # CLI
 docs/
@@ -53,10 +51,9 @@ Reuses from onboarding: `lib/db.ts` (Amberjack only — Phenix DB access moves t
 ## Step order and rationale
 
 1. **Phenix** — first so calls stop being routed to the departing agent immediately. Worker is still alive in Twilio at this point but inbound routing through Phenix is cut.
-2. **Slack** — deactivate the Slack user so DMs stop arriving and they lose access to channels.
-3. **Twilio** — destructive teardown of the worker and SIP credential. Done before Google so any Twilio-API errors surface before the irreversible Google delete.
-4. **Amberjack** — flip `locked = true`. Cheap, can't fail in interesting ways.
-5. **Google** — last, because GYB backup is slow and the user delete is the most irreversible action in the flow. Everything upstream must succeed first.
+2. **Twilio** — destructive teardown of the worker and SIP credential. Done before Google so any Twilio-API errors surface before the irreversible Google delete.
+3. **Amberjack** — flip `locked = true`. Cheap, can't fail in interesting ways.
+4. **Google** — last, because GYB backup is slow and the user delete is the most irreversible action in the flow. Everything upstream must succeed first.
 
 Each step is idempotent: `check()` returns true if the offboard outcome already exists in that system. For Kevin, every step's `check()` except Phenix returns true and is skipped.
 
@@ -72,21 +69,6 @@ mutation { setAgentInactive(email: $email) { email active } }
 
 - `check(ctx)`: GraphQL query for the agent — returns true if `active = false`.
 - `run(ctx)`: send the mutation. No additional bookkeeping; Remix handles the HUD refresh and the verifiedcallerid parking.
-
-### `steps/slack.ts`
-
-Single Slack admin API call. Requires an existing Slack app (operationally referred to as `slack-agent`) up-permissioned with `admin.users:write` (Enterprise Grid) or, on a standard workspace, an admin user token used as `SLACK_ADMIN_TOKEN`. The exact API is plan-dependent:
-
-- **Standard / Business+ workspaces**: `users.profile.set` cannot deactivate; deactivation goes through SCIM (`/scim/v1/Users/<id>` PATCH with `active: false`) using an admin token. Requires the SCIM API which is plan-gated.
-- **Enterprise Grid**: `admin.users.session.reset` to sign them out everywhere, then `admin.users.remove` or `admin.users.session.invalidate` depending on whether removal-from-org vs sign-out-only is desired.
-
-Step responsibilities:
-
-- `lib/slack.ts` exposes `findUserByEmail(email)` and `deactivateUser(userId)`.
-- `check(ctx)`: looks up the user; returns true if not found or already deactivated.
-- `run(ctx)`: deactivates.
-
-**Dependency** — to be confirmed during implementation: which Slack plan we're on, what the exact deactivation API surface is, and whether `slack-agent`'s current scopes cover it. If they don't, this is a small Slack-app rollout (add scope, reinstall app, capture new token) tracked alongside the Remix work in the handoff cycle.
 
 ### `steps/twilio.ts`
 
@@ -184,7 +166,6 @@ export interface OffboardContext {
 New:
 - `REMIX_GRAPHQL_URL` — e.g. `https://phenix.ameriglide.com/graphql` (TBD with Remix team).
 - `REMIX_API_KEY` — user key bearer token.
-- `SLACK_ADMIN_TOKEN` — admin/SCIM-scoped Slack token used by the Slack step.
 - `AG_ARCHIVE_ROOT` — local path for GYB backups; defaults to `~/ag-admin-archives`.
 
 Reused from onboarding: `AMBERJACK_DATABASE_URL`, `TWILIO_*`, `GOOGLE_SERVICE_ACCOUNT_KEY`, `GOOGLE_ADMIN_EMAIL`, `DOMAIN`.
@@ -201,7 +182,7 @@ Same model as `bin/onboard`: any step throwing aborts the run. The operator re-r
 
 - `bin/onboard` direct-line step learning to consume `parkedNumbers` from Remix before searching Twilio's national pool.
 - A standalone `bin/offboard-audit` if `--dry-run` proves insufficient.
-- Slack channel cleanup (removing the user from individual channels — deactivation already handles access, channel membership cleanup is cosmetic).
+- **Slack deactivation** — likely a small future step using an up-permissioned `slack-agent` Slack app. Not in v1; tracked here so it isn't forgotten. Expected shape: a fifth step calling Slack's SCIM API (standard plan) or `admin.users.*` (Enterprise Grid) to deactivate the user; depends on confirming current Slack plan and provisioning the right scopes/token.
 - Windows GCPW profile removal on individual machines.
 
 ## Validation plan

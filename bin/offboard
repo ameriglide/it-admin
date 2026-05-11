@@ -1,0 +1,56 @@
+#!/usr/bin/env bun
+//
+// Offboard a departing employee across Phenix (via Remix GraphQL), Twilio,
+// Amberjack, and Google Workspace. Idempotent — re-running on a partially
+// offboarded user skips work already done.
+//
+// Usage:
+//   bin/offboard --email jim.soffe@ameriglide.com
+//   bin/offboard --first Jim --last Soffe
+//   bin/offboard --email jim.soffe@ameriglide.com --manager boss@ameriglide.com
+//   bin/offboard --email jim.soffe@ameriglide.com --dry-run
+//
+
+import { parseArgs } from "util";
+import { run } from "../src/offboard/run";
+import type { OffboardContext } from "../src/offboard/types";
+
+const { values } = parseArgs({
+  args: Bun.argv.slice(2),
+  options: {
+    email: { type: "string" },
+    first: { type: "string" },
+    last: { type: "string" },
+    manager: { type: "string" },
+    skip: { type: "string" },
+    "dry-run": { type: "boolean", default: false },
+  },
+  strict: true,
+});
+
+const domain = process.env.DOMAIN ?? "ameriglide.com";
+
+let email = values.email;
+if (!email) {
+  if (!values.first || !values.last) {
+    console.error(
+      "Provide --email <addr> or both --first <first> --last <last>.",
+    );
+    process.exit(1);
+  }
+  email = `${values.first.toLowerCase()}.${values.last.toLowerCase()}@${domain}`;
+}
+
+const skip = values.skip
+  ? values.skip.split(",").map((s) => s.trim().toLowerCase())
+  : [];
+
+const ctx: OffboardContext = {
+  email,
+  managerEmail: values.manager,
+  dryRun: values["dry-run"] ?? false,
+};
+
+console.log(`\nOffboarding ${email}\n`);
+
+await run(ctx, skip);
