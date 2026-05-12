@@ -44,8 +44,7 @@ export interface Agent {
 }
 
 export interface SalesManager {
-  firstName: string;
-  lastName: string;
+  name: string;
   email: string;
 }
 
@@ -72,7 +71,7 @@ export async function setAgentInactive(email: string): Promise<Agent> {
 export async function listSalesManagers(): Promise<SalesManager[]> {
   const data = await graphql<{ salesManagers: SalesManager[] }>(
     `query SalesManagers {
-       salesManagers { firstName lastName email }
+       salesManagers { name email }
      }`,
   );
   return data.salesManagers;

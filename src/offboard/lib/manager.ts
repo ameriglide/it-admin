@@ -8,9 +8,7 @@ export async function pickManager(): Promise<SalesManager> {
       "Remix returned no sales managers — cannot resolve a Drive transfer target",
     );
   }
-  const labels = managers.map(
-    (m) => `${m.firstName} ${m.lastName} <${m.email}>`,
-  );
+  const labels = managers.map((m) => `${m.name} <${m.email}>`);
   console.log("\nSelect manager to transfer Drive ownership to:");
   const selected = await choose(labels);
   const idx = labels.indexOf(selected);

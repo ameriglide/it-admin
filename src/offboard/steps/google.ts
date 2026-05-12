@@ -47,7 +47,7 @@ export const googleStep: Step = {
       ctx.managerEmail = manager.email;
     }
     console.log(
-      `  Drive ownership will transfer to: ${manager.firstName} ${manager.lastName} <${manager.email}>`,
+      `  Drive ownership will transfer to: ${manager.name} <${manager.email}>`,
     );
 
     if (ctx.dryRun) {

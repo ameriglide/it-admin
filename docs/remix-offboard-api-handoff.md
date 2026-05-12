@@ -6,7 +6,9 @@ This doc covers only the Remix-side work. The `ag-admin` design follows separate
 
 ## What ag-admin needs
 
-### 1. Mutation: `setAgentInactive`
+The `agent(email)` query and `salesManagers` query are already present on the schema and working. The mutation below is the remaining blocker, plus the column migration.
+
+### 1. Mutation: `setAgentInactive` (new)
 
 ```graphql
 setAgentInactive(email: String!): Agent!
@@ -23,13 +25,13 @@ setAgentInactive(email: String!): Agent!
 
 **Returns** the updated agent (or at least `{ email, active }`) so the caller can verify.
 
-### 2. Query: `salesManagers`
+### 2. Query: `salesManagers` (already present)
 
 ```graphql
 salesManagers: [User!]!
 ```
 
-Returns active users with `canManageSales = true`. Used by `bin/offboard` to populate the "transfer Drive ownership to" picker. Should include at minimum `{ firstName, lastName, email }`.
+Already implemented. Returns active users with `canManageSales = true`. `ag-admin` selects `{ name, email }`.
 
 ### 3. Query: `parkedNumbers` (deferred — not blocking v1)
 
