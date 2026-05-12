@@ -6,7 +6,15 @@ export const phenixStep: Step = {
 
   async check(ctx: OffboardContext): Promise<boolean> {
     const agent = await getAgent(ctx.email);
-    if (!agent) return true; // never in Phenix => nothing to do
+    if (!agent) {
+      console.log(
+        `  Remix returned no agent for ${ctx.email}. ` +
+          `If this user has a Phenix agent row, the agent(email) GraphQL ` +
+          `query is wrong (field name, case sensitivity, or shape).`,
+      );
+      return true;
+    }
+    console.log(`  Phenix agent: email=${agent.email}, active=${agent.active}`);
     return agent.active === false;
   },
 

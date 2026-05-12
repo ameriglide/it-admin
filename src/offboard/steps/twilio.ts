@@ -16,6 +16,8 @@ export const twilioStep: Step = {
   async check(ctx: OffboardContext): Promise<boolean> {
     const worker = await findWorkerByEmail(ctx.email);
     const cred = await findCredentialByUsername(sipUsernameFromEmail(ctx.email));
+    console.log(`  Twilio worker: ${worker ? worker.sid : "absent"}`);
+    console.log(`  SIP credential: ${cred ? cred.sid : "absent"}`);
     return worker === null && cred === null;
   },
 

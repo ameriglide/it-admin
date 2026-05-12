@@ -9,7 +9,11 @@ export const amberjackStep: Step = {
     const [row] = await sql`
       SELECT id, locked FROM employee WHERE email = ${ctx.email}
     `;
-    if (!row) return true; // not present => nothing to lock
+    if (!row) {
+      console.log(`  No Amberjack employee row for ${ctx.email}`);
+      return true;
+    }
+    console.log(`  Amberjack employee: id=${row.id}, locked=${row.locked}`);
     ctx.amberjackEmployeeId = row.id;
     return row.locked === true;
   },

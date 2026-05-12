@@ -56,13 +56,18 @@ const TASKROUTER = "https://taskrouter.twilio.com/v1";
 
 export async function findWorkerByEmail(email: string): Promise<{ sid: string } | null> {
   const env = getEnv();
-  const url = `${TASKROUTER}/Workspaces/${env.workspaceSid}/Workers?PageSize=100`;
-  const data = await twilioFetch(url);
-  for (const w of data.workers) {
-    try {
-      const attrs = JSON.parse(w.attributes);
-      if (attrs.email === email) return { sid: w.sid };
-    } catch {}
+  let url: string | null =
+    `${TASKROUTER}/Workspaces/${env.workspaceSid}/Workers?PageSize=100`;
+  while (url) {
+    const data: any = await twilioFetch(url);
+    for (const w of data.workers ?? []) {
+      try {
+        const attrs = JSON.parse(w.attributes);
+        if (attrs.email === email) return { sid: w.sid };
+      } catch {}
+    }
+    // TaskRouter pages via meta.next_page_url (absolute URL) or null.
+    url = data.meta?.next_page_url ?? null;
   }
   return null;
 }
@@ -91,10 +96,18 @@ export async function updateWorkerAttributes(
 
 export async function findCredentialByUsername(username: string): Promise<{ sid: string } | null> {
   const env = getEnv();
-  const url = `${BASE}/Accounts/${env.accountSid}/SIP/CredentialLists/${env.credentialListSid}/Credentials.json?PageSize=100`;
-  const data = await twilioFetch(url);
-  const cred = data.credentials.find((c: any) => c.username === username);
-  return cred ? { sid: cred.sid } : null;
+  let url: string | null =
+    `${BASE}/Accounts/${env.accountSid}/SIP/CredentialLists/${env.credentialListSid}/Credentials.json?PageSize=100`;
+  while (url) {
+    const data: any = await twilioFetch(url);
+    const cred = (data.credentials ?? []).find(
+      (c: any) => c.username === username,
+    );
+    if (cred) return { sid: cred.sid };
+    // REST v2010 pages via next_page_uri (relative path).
+    url = data.next_page_uri ? `https://api.twilio.com${data.next_page_uri}` : null;
+  }
+  return null;
 }
 
 export async function createCredential(username: string, password: string): Promise<string> {
