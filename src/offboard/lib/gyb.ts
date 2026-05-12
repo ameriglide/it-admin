@@ -38,6 +38,7 @@ export async function backupMailbox(email: string): Promise<string> {
   const dest = backupPath(email);
   await mkdir(dest, { recursive: true });
   await spawnGyb([
+    "--service-account",
     "--email",
     email,
     "--action",
@@ -52,7 +53,12 @@ export async function restoreToGroup(
   groupEmail: string,
   localFolder: string,
 ): Promise<void> {
+  const adminEmail = process.env.GOOGLE_ADMIN_EMAIL;
+  if (!adminEmail) throw new Error("GOOGLE_ADMIN_EMAIL not set");
   await spawnGyb([
+    "--service-account",
+    "--use-admin",
+    adminEmail,
     "--email",
     groupEmail,
     "--action",
