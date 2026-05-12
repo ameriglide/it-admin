@@ -32,7 +32,7 @@ export function getDataTransfer() {
   return google.admin({ version: "datatransfer_v1", auth: getAuth() });
 }
 
-export type AddressKind = "user" | "group" | "trashed" | "absent";
+export type AddressKind = "user" | "group" | "absent";
 
 function isNotFound(err: any): boolean {
   const status = err?.code ?? err?.response?.status;
@@ -87,29 +87,32 @@ export async function findDeletedUser(
 
 export async function classifyAddress(email: string): Promise<AddressKind> {
   const dir = getDirectory();
+  let userLookupError: any = null;
+
   // Try users.get first — the common case during offboarding is that the
   // user still exists. This also dodges the groups.get-on-a-user 403 quirk.
   try {
     await dir.users.get({ userKey: email });
     return "user";
   } catch (err: any) {
-    if (isSoftDeletedSignal(err)) {
-      const domain = email.split("@")[1];
-      if (domain) {
-        const deleted = await findDeletedUser(email, domain);
-        if (deleted) return "trashed";
-      }
-      return "absent";
-    }
-    if (!isNotFound(err)) throw err;
+    if (!isSoftDeletedSignal(err) && !isNotFound(err)) throw err;
+    userLookupError = err;
   }
+
+  // No active user. A group may exist at this address even if the user is
+  // in soft-delete trash (Google treats group+trashed-user as co-existing
+  // namespaces, so prior runs may have already created the archive group).
   try {
     await dir.groups.get({ groupKey: email });
     return "group";
   } catch (err: any) {
-    if (isNotFound(err)) return "absent";
-    throw err;
+    if (!isNotFound(err)) throw err;
   }
+
+  // No active user and no group. Whether the user is in soft-delete trash
+  // or fully gone doesn't matter — the next-step flow is the same.
+  void userLookupError;
+  return "absent";
 }
 
 export async function hardDeleteUser(userId: string): Promise<void> {
@@ -231,8 +234,29 @@ export async function addGroupOwner(
   memberEmail: string,
 ): Promise<void> {
   const dir = getDirectory();
-  await dir.members.insert({
-    groupKey: groupEmail,
-    requestBody: { email: memberEmail, role: "OWNER" },
-  });
+  try {
+    await dir.members.insert({
+      groupKey: groupEmail,
+      requestBody: { email: memberEmail, role: "OWNER" },
+    });
+  } catch (err: any) {
+    const status = err?.code ?? err?.response?.status;
+    const msg = String(err?.message ?? "");
+    // 409 / duplicate => member already present. Idempotent.
+    if (status === 409 || /duplicate|already a member|memberKey/i.test(msg)) {
+      return;
+    }
+    throw err;
+  }
+}
+
+export async function groupHasOwner(groupEmail: string): Promise<boolean> {
+  const dir = getDirectory();
+  try {
+    const res = await dir.members.list({ groupKey: groupEmail, roles: "OWNER" });
+    return (res.data.members ?? []).length > 0;
+  } catch (err: any) {
+    if (err?.code === 404 || err?.response?.status === 404) return false;
+    throw err;
+  }
 }

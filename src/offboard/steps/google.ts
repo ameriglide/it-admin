@@ -14,7 +14,7 @@ import {
   createGroup,
   configureArchiveGroup,
   addGroupOwner,
-  findDeletedUser,
+  groupHasOwner,
 } from "../lib/google";
 import { verifyBackup } from "../lib/gyb";
 
@@ -32,10 +32,19 @@ export const googleStep: Step = {
 
   async check(ctx: OffboardContext): Promise<boolean> {
     const kind = await classifyAddress(ctx.email);
-    if (kind === "group") {
+    if (kind !== "group") return false;
+    // Group exists, but a prior run may have crashed before configure /
+    // owner / archive load completed. Use "has at least one OWNER" as a
+    // proxy for "post-create steps ran." If no owner, fall back to
+    // re-running so we can finish.
+    const hasOwner = await groupHasOwner(ctx.email);
+    if (hasOwner) {
       ctx.groupEmail = ctx.email;
       return true;
     }
+    console.log(
+      `  Group ${ctx.email} exists but has no owner — resuming post-create steps.`,
+    );
     return false;
   },
 
@@ -89,10 +98,11 @@ export const googleStep: Step = {
 
       console.log(`  Waiting for delete to propagate...`);
       await waitForUserDeleted(ctx.email);
-    } else if (kindNow === "trashed" || kindNow === "absent") {
-      // User already gone (prior partial run, or in soft-delete trash).
-      // Backup must exist on disk from a prior run — verify before
-      // proceeding, otherwise we'd build an empty archive group.
+    } else if (kindNow === "absent" || kindNow === "group") {
+      // User already gone (prior partial run, or in soft-delete trash —
+      // either way, no live mailbox to back up). Use the prior on-disk
+      // backup, verifying it has content before building/finishing the
+      // archive group.
       const expected = backupPath(ctx.email);
       const verification = await verifyBackup(expected);
       ctx.gybBackupPath = verification.folder;
@@ -102,30 +112,16 @@ export const googleStep: Step = {
       if (verification.emlCount === 0) {
         throw new Error(
           `prior backup at ${expected} has 0 .eml files. ` +
-            `Cannot build an empty archive group. Restore the user from ` +
-            `trash, re-run, or supply a populated backup folder.`,
+            `Cannot build an empty archive group.`,
         );
       }
     }
 
-    if (kindNow === "trashed") {
-      const domain = ctx.email.split("@")[1]!;
-      const deleted = await findDeletedUser(ctx.email, domain);
-      if (deleted) {
-        console.log(
-          `  Note: ${ctx.email} is in soft-delete trash (id=${deleted.id}, deleted ${deleted.deletionTime}). Attempting group create anyway.`,
-        );
-      }
-    }
-
-    console.log(`  Creating archive group ${ctx.email}...`);
-    try {
+    if (kindNow === "group") {
+      console.log(`  Archive group ${ctx.email} already exists — resuming.`);
+    } else {
+      console.log(`  Creating archive group ${ctx.email}...`);
       await createGroup(ctx.email, archivedGroupName(ctx.email));
-    } catch (err: any) {
-      const status = err?.code ?? err?.response?.status;
-      const msg = String(err?.message ?? "");
-      console.error(`  createGroup error: status=${status} message=${msg}`);
-      throw err;
     }
 
     console.log(`  Configuring group settings...`);
