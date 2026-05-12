@@ -15,7 +15,6 @@ import {
   configureArchiveGroup,
   addGroupOwner,
   findDeletedUser,
-  hardDeleteUser,
 } from "../lib/google";
 import { verifyBackup } from "../lib/gyb";
 
@@ -110,22 +109,24 @@ export const googleStep: Step = {
     }
 
     if (kindNow === "trashed") {
-      // While the user is in soft-delete trash the email address is
-      // reserved — creating a group with the same address would fail.
-      // Hard-delete the trash entry to free it, then proceed.
       const domain = ctx.email.split("@")[1]!;
       const deleted = await findDeletedUser(ctx.email, domain);
       if (deleted) {
         console.log(
-          `  Hard-deleting trashed user ${ctx.email} (id=${deleted.id}, deleted ${deleted.deletionTime}) to free the address...`,
+          `  Note: ${ctx.email} is in soft-delete trash (id=${deleted.id}, deleted ${deleted.deletionTime}). Attempting group create anyway.`,
         );
-        await hardDeleteUser(deleted.id);
-        await waitForUserDeleted(ctx.email);
       }
     }
 
     console.log(`  Creating archive group ${ctx.email}...`);
-    await createGroup(ctx.email, archivedGroupName(ctx.email));
+    try {
+      await createGroup(ctx.email, archivedGroupName(ctx.email));
+    } catch (err: any) {
+      const status = err?.code ?? err?.response?.status;
+      const msg = String(err?.message ?? "");
+      console.error(`  createGroup error: status=${status} message=${msg}`);
+      throw err;
+    }
 
     console.log(`  Configuring group settings...`);
     await configureArchiveGroup(ctx.email);
