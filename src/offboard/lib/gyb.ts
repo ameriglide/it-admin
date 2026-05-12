@@ -1,6 +1,6 @@
 import { homedir } from "node:os";
 import { join } from "node:path";
-import { mkdir } from "node:fs/promises";
+import { mkdir, stat, readdir } from "node:fs/promises";
 
 export function archiveRoot(): string {
   return process.env.AG_ARCHIVE_ROOT ?? join(homedir(), "ag-admin-archives");
@@ -34,7 +34,44 @@ async function spawnGyb(args: string[]): Promise<void> {
   }
 }
 
-export async function backupMailbox(email: string): Promise<string> {
+async function countEml(folder: string): Promise<number> {
+  let count = 0;
+  const stack = [folder];
+  while (stack.length) {
+    const dir = stack.pop()!;
+    const entries = await readdir(dir, { withFileTypes: true });
+    for (const e of entries) {
+      const full = join(dir, e.name);
+      if (e.isDirectory()) stack.push(full);
+      else if (e.isFile() && e.name.endsWith(".eml")) count++;
+    }
+  }
+  return count;
+}
+
+export interface BackupVerification {
+  folder: string;
+  emlCount: number;
+}
+
+export async function verifyBackup(folder: string): Promise<BackupVerification> {
+  try {
+    await stat(folder);
+  } catch {
+    throw new Error(`gyb backup folder missing: ${folder}`);
+  }
+  try {
+    await stat(join(folder, "msg-db.sqlite"));
+  } catch {
+    throw new Error(
+      `gyb backup folder ${folder} has no msg-db.sqlite — backup did not complete cleanly`,
+    );
+  }
+  const emlCount = await countEml(folder);
+  return { folder, emlCount };
+}
+
+export async function backupMailbox(email: string): Promise<BackupVerification> {
   const dest = backupPath(email);
   await mkdir(dest, { recursive: true });
   await spawnGyb([
@@ -46,7 +83,7 @@ export async function backupMailbox(email: string): Promise<string> {
     "--local-folder",
     dest,
   ]);
-  return dest;
+  return verifyBackup(dest);
 }
 
 export async function restoreToGroup(

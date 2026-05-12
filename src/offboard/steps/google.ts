@@ -14,7 +14,10 @@ import {
   createGroup,
   configureArchiveGroup,
   addGroupOwner,
+  findDeletedUser,
+  hardDeleteUser,
 } from "../lib/google";
+import { verifyBackup } from "../lib/gyb";
 
 function archivedGroupName(email: string): string {
   const local = email.split("@")[0]!;
@@ -65,7 +68,18 @@ export const googleStep: Step = {
 
     if (kindNow === "user") {
       console.log(`  Backing up mailbox via gyb...`);
-      ctx.gybBackupPath = await backupMailbox(ctx.email);
+      const verification = await backupMailbox(ctx.email);
+      ctx.gybBackupPath = verification.folder;
+      console.log(
+        `  Backup verified at ${verification.folder} (${verification.emlCount} .eml files)`,
+      );
+      if (verification.emlCount === 0) {
+        throw new Error(
+          `gyb backup of ${ctx.email} produced 0 .eml files. ` +
+            `Refusing to proceed with destructive Drive transfer + user delete. ` +
+            `Investigate manually before re-running.`,
+        );
+      }
 
       console.log(`  Transferring Drive ownership to ${manager.email}...`);
       const transferId = await transferDriveOwnership(ctx.email, manager.email);
@@ -76,13 +90,38 @@ export const googleStep: Step = {
 
       console.log(`  Waiting for delete to propagate...`);
       await waitForUserDeleted(ctx.email);
-    } else if (kindNow === "absent") {
-      // User already gone (manual delete or partial prior run). Backup path
-      // may already exist; restore from whatever's on disk.
-      ctx.gybBackupPath = backupPath(ctx.email);
+    } else if (kindNow === "trashed" || kindNow === "absent") {
+      // User already gone (prior partial run, or in soft-delete trash).
+      // Backup must exist on disk from a prior run — verify before
+      // proceeding, otherwise we'd build an empty archive group.
+      const expected = backupPath(ctx.email);
+      const verification = await verifyBackup(expected);
+      ctx.gybBackupPath = verification.folder;
       console.log(
-        `  User already absent; expecting prior backup at ${ctx.gybBackupPath}`,
+        `  Using prior backup at ${verification.folder} (${verification.emlCount} .eml files)`,
       );
+      if (verification.emlCount === 0) {
+        throw new Error(
+          `prior backup at ${expected} has 0 .eml files. ` +
+            `Cannot build an empty archive group. Restore the user from ` +
+            `trash, re-run, or supply a populated backup folder.`,
+        );
+      }
+    }
+
+    if (kindNow === "trashed") {
+      // While the user is in soft-delete trash the email address is
+      // reserved — creating a group with the same address would fail.
+      // Hard-delete the trash entry to free it, then proceed.
+      const domain = ctx.email.split("@")[1]!;
+      const deleted = await findDeletedUser(ctx.email, domain);
+      if (deleted) {
+        console.log(
+          `  Hard-deleting trashed user ${ctx.email} (id=${deleted.id}, deleted ${deleted.deletionTime}) to free the address...`,
+        );
+        await hardDeleteUser(deleted.id);
+        await waitForUserDeleted(ctx.email);
+      }
     }
 
     console.log(`  Creating archive group ${ctx.email}...`);
@@ -94,12 +133,13 @@ export const googleStep: Step = {
     console.log(`  Adding ${manager.email} as group owner...`);
     await addGroupOwner(ctx.email, manager.email);
 
-    if (ctx.gybBackupPath) {
-      console.log(`  Loading mail archive into group via gyb...`);
-      await restoreToGroup(ctx.email, ctx.gybBackupPath);
-    } else {
-      console.log(`  No backup path on disk; skipping archive load`);
+    if (!ctx.gybBackupPath) {
+      throw new Error(
+        `No backup path available — refusing to leave the archive group empty.`,
+      );
     }
+    console.log(`  Loading mail archive into group via gyb...`);
+    await restoreToGroup(ctx.email, ctx.gybBackupPath);
 
     ctx.groupEmail = ctx.email;
   },

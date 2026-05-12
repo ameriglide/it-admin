@@ -32,7 +32,7 @@ export function getDataTransfer() {
   return google.admin({ version: "datatransfer_v1", auth: getAuth() });
 }
 
-export type AddressKind = "user" | "group" | "absent";
+export type AddressKind = "user" | "group" | "trashed" | "absent";
 
 function isNotFound(err: any): boolean {
   const status = err?.code ?? err?.response?.status;
@@ -43,6 +43,48 @@ function isNotFound(err: any): boolean {
   return status === 404 || status === 403;
 }
 
+function isSoftDeletedSignal(err: any): boolean {
+  const status = err?.code ?? err?.response?.status;
+  const msg = String(err?.message ?? "");
+  // Google returns 400 "Type not supported: userKey" for users that are
+  // in the 20-day soft-delete trash window — they can't be fetched by
+  // userKey on the live endpoint, only via users.list with showDeleted.
+  return status === 400 && /Type not supported: userKey/i.test(msg);
+}
+
+export interface DeletedUser {
+  id: string;
+  primaryEmail: string;
+  deletionTime?: string | null;
+}
+
+export async function findDeletedUser(
+  email: string,
+  domain: string,
+): Promise<DeletedUser | null> {
+  const dir = getDirectory();
+  let pageToken: string | undefined;
+  do {
+    const res = await dir.users.list({
+      domain,
+      showDeleted: "true",
+      maxResults: 500,
+      pageToken,
+    });
+    for (const u of res.data.users ?? []) {
+      if ((u.primaryEmail ?? "").toLowerCase() === email.toLowerCase()) {
+        return {
+          id: u.id!,
+          primaryEmail: u.primaryEmail!,
+          deletionTime: u.deletionTime ?? null,
+        };
+      }
+    }
+    pageToken = res.data.nextPageToken ?? undefined;
+  } while (pageToken);
+  return null;
+}
+
 export async function classifyAddress(email: string): Promise<AddressKind> {
   const dir = getDirectory();
   // Try users.get first — the common case during offboarding is that the
@@ -51,6 +93,14 @@ export async function classifyAddress(email: string): Promise<AddressKind> {
     await dir.users.get({ userKey: email });
     return "user";
   } catch (err: any) {
+    if (isSoftDeletedSignal(err)) {
+      const domain = email.split("@")[1];
+      if (domain) {
+        const deleted = await findDeletedUser(email, domain);
+        if (deleted) return "trashed";
+      }
+      return "absent";
+    }
     if (!isNotFound(err)) throw err;
   }
   try {
@@ -60,6 +110,13 @@ export async function classifyAddress(email: string): Promise<AddressKind> {
     if (isNotFound(err)) return "absent";
     throw err;
   }
+}
+
+export async function hardDeleteUser(userId: string): Promise<void> {
+  const dir = getDirectory();
+  // For users in the soft-delete trash, calling users.delete with the
+  // user's ID (not the email — that path returns 400) frees the address.
+  await dir.users.delete({ userKey: userId });
 }
 
 async function getUserId(email: string): Promise<string> {
@@ -130,7 +187,10 @@ export async function waitForUserDeleted(
     try {
       await dir.users.get({ userKey: email });
     } catch (err: any) {
-      if (err?.code === 404 || err?.response?.status === 404) return;
+      const status = err?.code ?? err?.response?.status;
+      // 404 = fully removed; 400 "Type not supported: userKey" = soft-deleted.
+      // Either state means the live directory no longer resolves this email.
+      if (status === 404 || isSoftDeletedSignal(err)) return;
       throw err;
     }
     await Bun.sleep(2_000);
