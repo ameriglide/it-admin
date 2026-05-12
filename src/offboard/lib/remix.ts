@@ -68,6 +68,18 @@ export async function setAgentInactive(email: string): Promise<Agent> {
   return data.setAgentInactive;
 }
 
+export async function refreshHud(): Promise<void> {
+  // Phenix caches HUD state independently of the agent table. Setting an
+  // agent inactive (via setAgentInactive, the UI, or direct SQL) does not
+  // automatically invalidate the cache, so a still-active HUD entry can
+  // linger. Hit the no-auth refresh endpoint to force a rebuild.
+  const url = "https://phenix.ameriglide.com/api/hud?produce=true&teams=true";
+  const res = await fetch(url);
+  if (!res.ok) {
+    throw new Error(`HUD refresh ${res.status}: ${await res.text()}`);
+  }
+}
+
 export async function listSalesManagers(): Promise<SalesManager[]> {
   const data = await graphql<{ salesManagers: SalesManager[] }>(
     `query SalesManagers {
