@@ -54,6 +54,17 @@ async function twilioPost(url: string, params: Record<string, string>): Promise<
 const BASE = "https://api.twilio.com/2010-04-01";
 const TASKROUTER = "https://taskrouter.twilio.com/v1";
 
+// Pre-2026 workers were created without an `email` attribute. Fall back to
+// matching friendly_name against the email local part so legacy workers
+// (like Jim Soffe — friendly_name "Jim Soffe", no attributes.email) are
+// still findable when offboarding.
+function friendlyNameMatchesEmail(friendlyName: string, email: string): boolean {
+  const localPart = email.split("@")[0]?.toLowerCase();
+  if (!localPart) return false;
+  const normalized = friendlyName.trim().toLowerCase().replace(/\s+/g, ".");
+  return normalized === localPart;
+}
+
 export async function findWorkerByEmail(email: string): Promise<{ sid: string } | null> {
   const env = getEnv();
   let url: string | null =
@@ -61,10 +72,14 @@ export async function findWorkerByEmail(email: string): Promise<{ sid: string } 
   while (url) {
     const data: any = await twilioFetch(url);
     for (const w of data.workers ?? []) {
-      try {
-        const attrs = JSON.parse(w.attributes);
-        if (attrs.email === email) return { sid: w.sid };
-      } catch {}
+      let attrs: any = {};
+      try { attrs = JSON.parse(w.attributes); } catch {}
+      if (attrs.email && attrs.email.toLowerCase() === email.toLowerCase()) {
+        return { sid: w.sid };
+      }
+      if (!attrs.email && friendlyNameMatchesEmail(w.friendly_name ?? "", email)) {
+        return { sid: w.sid };
+      }
     }
     // TaskRouter pages via meta.next_page_url (absolute URL) or null.
     url = data.meta?.next_page_url ?? null;
