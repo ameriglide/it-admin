@@ -34,23 +34,30 @@ export function getDataTransfer() {
 
 export type AddressKind = "user" | "group" | "absent";
 
+function isNotFound(err: any): boolean {
+  const status = err?.code ?? err?.response?.status;
+  // Directory API sometimes returns 403 when a key exists as a different
+  // resource type (e.g. groups.get on an address that's actually a user).
+  // Treat 403 the same as 404 for classification purposes; real auth
+  // errors will still surface elsewhere on the first attempted op.
+  return status === 404 || status === 403;
+}
+
 export async function classifyAddress(email: string): Promise<AddressKind> {
   const dir = getDirectory();
-  try {
-    await dir.groups.get({ groupKey: email });
-    return "group";
-  } catch (err: any) {
-    if (err?.code !== 404 && err?.response?.status !== 404) {
-      // Not a 404 — surface real errors (auth, transient, etc.)
-      // Continue to user check only on 404.
-      throw err;
-    }
-  }
+  // Try users.get first — the common case during offboarding is that the
+  // user still exists. This also dodges the groups.get-on-a-user 403 quirk.
   try {
     await dir.users.get({ userKey: email });
     return "user";
   } catch (err: any) {
-    if (err?.code === 404 || err?.response?.status === 404) return "absent";
+    if (!isNotFound(err)) throw err;
+  }
+  try {
+    await dir.groups.get({ groupKey: email });
+    return "group";
+  } catch (err: any) {
+    if (isNotFound(err)) return "absent";
     throw err;
   }
 }
