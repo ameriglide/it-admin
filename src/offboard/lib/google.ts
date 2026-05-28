@@ -58,6 +58,47 @@ export interface DeletedUser {
   deletionTime?: string | null;
 }
 
+export interface ActiveUser {
+  name: string;
+  email: string;
+}
+
+export async function listActiveUsers(): Promise<ActiveUser[]> {
+  const dir = getDirectory();
+  const users: ActiveUser[] = [];
+  let pageToken: string | undefined;
+  do {
+    const res = await dir.users.list({
+      customer: "my_customer",
+      maxResults: 500,
+      pageToken,
+      query: "isSuspended=false isArchived=false",
+      orderBy: "email",
+    });
+    for (const u of res.data.users ?? []) {
+      const email = u.primaryEmail;
+      if (!email) continue;
+      users.push({
+        name: u.name?.fullName ?? email,
+        email,
+      });
+    }
+    pageToken = res.data.nextPageToken ?? undefined;
+  } while (pageToken);
+  return users;
+}
+
+export async function getUserDisplayName(email: string): Promise<string | null> {
+  const dir = getDirectory();
+  try {
+    const res = await dir.users.get({ userKey: email });
+    return res.data.name?.fullName ?? res.data.primaryEmail ?? null;
+  } catch (err: any) {
+    if (isNotFound(err) || isSoftDeletedSignal(err)) return null;
+    throw err;
+  }
+}
+
 export async function findDeletedUser(
   email: string,
   domain: string,

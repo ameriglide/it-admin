@@ -54,7 +54,7 @@ export const googleStep: Step = {
     if (ctx.managerEmail) {
       manager = await resolveManager(ctx.managerEmail);
     } else {
-      manager = await pickManager();
+      manager = await pickManager(ctx.email);
       ctx.managerEmail = manager.email;
     }
     console.log(

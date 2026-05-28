@@ -18,6 +18,20 @@ export async function choose(items: string[]): Promise<string> {
   return gum(["choose", ...items]);
 }
 
+export async function filter(items: string[], placeholder = "Type to search"): Promise<string> {
+  const proc = Bun.spawn(["gum", "filter", "--placeholder", placeholder], {
+    stdin: "pipe",
+    stdout: "pipe",
+    stderr: "inherit",
+  });
+  proc.stdin.write(items.join("\n"));
+  await proc.stdin.end();
+  const text = await new Response(proc.stdout).text();
+  const code = await proc.exited;
+  if (code !== 0) throw new Error(`gum exited with code ${code}`);
+  return text.trim();
+}
+
 export async function chooseMulti(items: string[]): Promise<string[]> {
   const result = await gum(["choose", "--no-limit", ...items]);
   return result.split("\n").filter(Boolean);
