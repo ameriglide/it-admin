@@ -1,0 +1,22 @@
+#!/usr/bin/env bun
+
+import { parseArgs } from "util";
+import { run } from "../src/cost-allocation/run";
+
+const { values } = parseArgs({
+  args: Bun.argv.slice(2),
+  options: {
+    csv: { type: "string" }, // path to a manually-downloaded invoice CSV
+    uuid: { type: "string" }, // specific invoice UUID
+    period: { type: "string" }, // YYYY-MM
+    out: { type: "string" }, // output directory override
+  },
+  strict: true,
+});
+
+await run({
+  csv: values.csv,
+  uuid: values.uuid,
+  period: values.period,
+  outDir: values.out,
+});

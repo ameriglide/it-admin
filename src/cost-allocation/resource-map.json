@@ -1,0 +1,21 @@
+[
+  { "match": "amg-bjx", "entity": "AMG" },
+  { "match": "iai-bjx", "entity": "IAI" },
+  { "match": "beejax", "entity": "SHARED" },
+  { "match": "phenix-ci-runner", "entity": "SHARED" },
+  { "match": "redis-stack", "entity": "SHARED" },
+  { "match": "error-monitoring", "entity": "SHARED" },
+  { "match": "headscale", "entity": "SHARED" },
+  { "match": "callgrove", "entity": "IAI" },
+  { "match": "asterisk", "entity": "IAI" },
+  { "match": "youtrack", "entity": "ATC" },
+  { "match": "slack-agent", "entity": "AMG" },
+  { "match": "amg-blog", "entity": "AMG" },
+  { "match": "automated-emails", "entity": "AMG" },
+  { "match": "split-clone", "entity": "AMG" },
+  { "match": "mms-media", "entity": "AMG" },
+  { "match": "phenix-backups", "entity": "AMG" },
+  { "match": "ameriglide-postgresql", "entity": "AMG" },
+  { "match": "container registry", "entity": "AMG" },
+  { "match": "spaces (", "entity": "AMG" }
+]

@@ -1,0 +1,5 @@
+{
+  "_comment": "shareSplit divides the SHARED bucket; values MUST sum to 1. AMG/IAI = 60/40 by agreement (2026-05). rollup folds a direct bucket into another entity for the final statement — ATC Distributors is reported under IAI for now; remove that entry and add ATC to shareSplit to break it out later.",
+  "shareSplit": { "AMG": 0.6, "IAI": 0.4 },
+  "rollup": { "ATC": "IAI" }
+}
