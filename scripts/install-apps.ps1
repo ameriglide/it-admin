@@ -86,7 +86,7 @@ if (-not $TailscaleAuthKey) {
 $ErrorActionPreference = "Stop"
 $ProgressPreference = "SilentlyContinue"
 # Stamped by pre-commit hook -- do not edit manually
-$Script:Revision = "4a40782"
+$Script:Revision = "bd3b9e0"
 
 Write-Host "install-apps.ps1 rev $Script:Revision" -ForegroundColor DarkGray
 
@@ -201,6 +201,12 @@ if ($tsCmd) {
     } else {
         Write-Warning "  Tailscale auth failed (exit code $LASTEXITCODE)."
     }
+    # `tailscale up --unattended` doesn't always flip the GUI's "Run unattended"
+    # checkbox on Windows. The tray app reads this registry key as the source of
+    # truth, so set it explicitly so the tunnel survives logoff/reboot.
+    $regPath = "HKLM:\SOFTWARE\Tailscale IPN"
+    if (-not (Test-Path $regPath)) { New-Item -Path $regPath -Force | Out-Null }
+    Set-ItemProperty -Path $regPath -Name "UnattendedMode" -Value "always" -Type String
 } else {
     Write-Warning "  Tailscale CLI not found. May require a reboot before auth."
 }
