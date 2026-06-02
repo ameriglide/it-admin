@@ -92,6 +92,29 @@ export async function walkWorkstationSetup(ctx: Context): Promise<void> {
   console.log(`    Installs apps, joins Tailscale, installs Zoiper. ${sipNote}`);
   await pause();
 
+  // --- Optional: Sage AMG user onboarding (also standalone in bin/copy) ---
+  if (await confirm("Onboard this user into Sage (AMG)?")) {
+    // Sage wants the Windows SAM name + the password set on the Google account.
+    // We reuse the password captured earlier in this run so it isn't retyped.
+    let sagePass = ctx.googlePassword ?? undefined;
+    if (!sagePass) {
+      // null when the Google account already existed (resume) — we don't hold
+      // the plaintext, so ask for the password that was set on Google.
+      console.log("  No Google password captured this run (account already existed).");
+      sagePass = await input("Password set on their Google account");
+    }
+    if (sagePass) {
+      await copyToClipboard(
+        psOneLiner("onboard-sage-amg-user.ps1", `-SamName ${user} -Password ${psq(sagePass)}`),
+      );
+      console.log("  ✓ Copied Sage AMG onboarding one-liner. Provisions the Sage");
+      console.log("    account using their Google password.");
+      await pause();
+    } else {
+      console.log("  ⚠  No password — skipping Sage onboarding.");
+    }
+  }
+
   // --- Verify ---
   console.log("  Verify: confirm the device appears in Google Admin Console >");
   console.log(`    Devices, and that ${ctx.firstName} can sign in with their Google`);
