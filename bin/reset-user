@@ -12,6 +12,7 @@
 // Usage: bin/reset-user --user jim.soffe
 //
 
+import "../src/lib/load-env"; // must be first: loads repo-root .env regardless of cwd
 import { parseArgs } from "util";
 import { getDirectoryClient } from "../src/onboard/lib/google";
 import { generateTempPassword } from "../src/onboard/lib/password";

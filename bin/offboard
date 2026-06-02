@@ -11,6 +11,7 @@
 //   bin/offboard --email jim.soffe@ameriglide.com --dry-run
 //
 
+import "../src/lib/load-env"; // must be first: loads repo-root .env regardless of cwd
 import { parseArgs } from "util";
 import { run } from "../src/offboard/run";
 import type { OffboardContext } from "../src/offboard/types";
