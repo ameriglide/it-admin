@@ -3,7 +3,8 @@
 import "../src/lib/load-env"; // must be first: loads repo-root .env regardless of cwd
 import { parseArgs } from "util";
 import { run } from "../src/onboard/run";
-import { input } from "../src/onboard/lib/prompt";
+import { confirm, input } from "../src/onboard/lib/prompt";
+import { walkWorkstationSetup } from "../src/onboard/workstation";
 import type { Context } from "../src/onboard/types";
 
 const { values } = parseArgs({
@@ -48,3 +49,10 @@ const ctx: Context = {
 };
 
 await run(ctx, skip);
+
+// Continue into the workstation setup (the steps you'd paste into the new
+// machine), reusing the context we just built. Optional — skip if no machine
+// is in front of you yet.
+if (await confirm("Set up the workstation now?")) {
+  await walkWorkstationSetup(ctx);
+}

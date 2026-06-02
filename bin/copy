@@ -18,8 +18,8 @@ fi
 # Workspace domain — used to build user@<domain> emails in PS one-liners.
 : "${DOMAIN:=ameriglide.com}"
 
-# Brand label and storefront URL — passed to install-apps.ps1 to brand the
-# ProgramData launcher dir, 2SV flag, and bookmark bar storefront entry.
+# Brand label and storefront URL — passed to setup-workstation.ps1 to brand
+# the ProgramData launcher dir, 2SV flag, and bookmark bar storefront entry.
 : "${BRAND:=AmeriGlide}"
 : "${MARKETING_URL:=https://www.ameriglide.com}"
 
@@ -47,7 +47,7 @@ install_apps() {
   fi
   local zuser="${ZOIPER_USERNAME:-}"
   local zpass="${ZOIPER_PASSWORD:-}"
-  local cmd="Set-ExecutionPolicy Bypass -Scope Process -Force; irm https://raw.githubusercontent.com/ameriglide/it-admin/main/scripts/install-apps.ps1 -OutFile \$env:TEMP\\install-apps.ps1; & \$env:TEMP\\install-apps.ps1 -Domain ${DOMAIN} -Brand \"${BRAND}\" -MarketingUrl \"${MARKETING_URL}\" -TailscaleAuthKey \"$key\""
+  local cmd="Set-ExecutionPolicy Bypass -Scope Process -Force; irm https://raw.githubusercontent.com/ameriglide/it-admin/main/scripts/setup-workstation.ps1 -OutFile \$env:TEMP\\setup-workstation.ps1; & \$env:TEMP\\setup-workstation.ps1 -Domain ${DOMAIN} -Brand \"${BRAND}\" -MarketingUrl \"${MARKETING_URL}\" -TailscaleAuthKey \"$key\""
   if [[ -n "$zuser" && -n "$zpass" ]]; then
     cmd="$cmd -ZoiperUsername \"$zuser\" -ZoiperPassword \"$zpass\""
   else
@@ -144,7 +144,7 @@ install_tailscale() {
     echo >&2 "  ⚠  TAILSCALE_AUTH_KEY not set in .env — using placeholder"
     key="<paste-key-here>"
   fi
-  echo "Set-ExecutionPolicy Bypass -Scope Process -Force; irm https://raw.githubusercontent.com/ameriglide/it-admin/main/scripts/install-apps.ps1 -OutFile \$env:TEMP\\install-apps.ps1; & \$env:TEMP\\install-apps.ps1 -TailscaleAuthKey \"$key\" -Only tailscale"
+  echo "Set-ExecutionPolicy Bypass -Scope Process -Force; irm https://raw.githubusercontent.com/ameriglide/it-admin/main/scripts/setup-workstation.ps1 -OutFile \$env:TEMP\\setup-workstation.ps1; & \$env:TEMP\\setup-workstation.ps1 -TailscaleAuthKey \"$key\" -Only tailscale"
 }
 
 tailscale_key() {
@@ -179,134 +179,13 @@ new_tailscale_key() {
 }
 
 # ---------------------------------------------------------------------------
-# Guided onboarding walkthrough
-# ---------------------------------------------------------------------------
-# Walks the technician through the full new-employee + new-machine flow in
-# order, copying the right PowerShell one-liner to the clipboard at each
-# workstation step. The canonical order also lives in README "Onboarding
-# runbook" — keep the two in sync.
-#
-# [CONFIRM] Best-guess assumptions baked in (fix if wrong):
-#   - Steps 2-3 are run by the technician from an ELEVATED PowerShell on the
-#     fresh machine (OOBE local account or 'localadmin'), BEFORE the employee
-#     ever signs in with Google.
-#   - Zoiper (step 5) is run after the employee's first Google sign-in so the
-#     config lands in their GCPW-provisioned profile.
-_pause() {
-  printf '\n'
-  # Drain any keystrokes buffered during the previous step (stray Enters, or
-  # input left over by gum) so we wait for a FRESH keypress instead of sailing
-  # through every step on stale newlines. Portable + set -e safe.
-  local _saved
-  if _saved=$(stty -g </dev/tty 2>/dev/null); then
-    stty -icanon min 0 time 0 </dev/tty 2>/dev/null
-    while IFS= read -r -n 1 _ </dev/tty 2>/dev/null; do :; done
-    stty "$_saved" </dev/tty 2>/dev/null
-  fi
-  read -r -p "  Press Enter when this step is done (Ctrl-C to abort)... " _ </dev/tty
-  printf '\n'
-}
-
-_step() {
-  local title="$1"; shift
-  gum style --foreground 35 "  $title"
-  local line
-  for line in "$@"; do printf '    %s\n' "$line"; done
-}
-
-_copy_step() {
-  local title="$1" payload="$2"; shift 2
-  gum style --foreground 35 "  $title"
-  local line
-  for line in "$@"; do printf '    %s\n' "$line"; done
-  printf '%s' "$payload" | pbcopy
-  gum style --foreground 35 "    ✓ One-liner copied — paste into an elevated PowerShell on the workstation."
-  _pause
-}
-
-onboard_runbook() {
-  local first last
-  first=$(gum input --placeholder "First" --header "Guided onboarding: employee first name" </dev/tty) || return 0
-  last=$(gum input --placeholder "Last" --header "Guided onboarding: employee last name" </dev/tty) || return 0
-  [[ -z "$first" || -z "$last" ]] && return 0
-
-  gum style --border rounded --padding "0 1" --foreground 35 \
-    "Onboarding: $first $last" \
-    "Work top to bottom. Workstation steps copy a one-liner to your clipboard;" \
-    "paste each into an ELEVATED PowerShell on the new machine."
-
-  local onboard_cmd="bin/onboard --first \"$first\" --last \"$last\""
-  _step "1/6  Mac: provision accounts" \
-    "In the it-admin repo on your Mac (NOT the workstation), run:" \
-    "    $onboard_cmd" \
-    "Creates Google, Amberjack, Phenix, Twilio + SIP, and the Zoiper config." \
-    "Idempotent — re-run to resume. Let it finish before continuing."
-  printf '%s' "$onboard_cmd" | pbcopy
-  gum style --foreground 35 "    ✓ Command copied — paste into your Mac terminal in the it-admin repo."
-  _pause
-
-  _copy_step "2/6  Workstation (elevated PS): GCPW new-machine setup [only if needed]" "$(new_machine)" \
-    "ONLY for a brand-new machine that doesn't already have GCPW. Most reused/" \
-    "imaged machines already do — skip this step and just paste-and-continue." \
-    "Installs GCPW, creates the 'localadmin' break-glass admin, and sets the" \
-    "Google sign-in domain. Run as a local admin during Windows OOBE."
-
-  _copy_step "3/6  Workstation (elevated PS): install apps + Tailscale" "$(install_apps)" \
-    "Installs the standard app set and joins the Tailscale network."
-
-  gum style --foreground 35 "  4/6  Workstation (elevated PS): Zoiper into the Default profile"
-  printf '    %s\n' \
-    "Do this BEFORE the employee's first login so it's already there when they" \
-    "sign in. Leave the Windows username BLANK to write to the Default profile —" \
-    "their GCPW profile doesn't exist until they sign in for the first time."
-  local zoiper_cmd
-  if zoiper_cmd=$(zoiper_setup); then
-    printf '%s' "$zoiper_cmd" | pbcopy
-    gum style --foreground 35 "    ✓ Zoiper one-liner copied — paste into the elevated PowerShell."
-  else
-    gum style --foreground 214 "    ⚠  Skipped Zoiper (no SIP creds yet?) — use the Zoiper menu entry later."
-  fi
-  _pause
-
-  _step "5/6  Verify the account was created properly" \
-    "Confirm bin/onboard finished cleanly and $first looks right in the Google" \
-    "Admin Console (and the device shows under Devices). If you did a test" \
-    "sign-in on the machine, that profile gets cleaned up by the next step."
-  _pause
-
-  local reset_user
-  reset_user="$(printf '%s.%s' "$first" "$last" | tr '[:upper:]' '[:lower:]')"
-  gum style --foreground 35 "  6/6  Final: re-arm a clean first-login (reset GCPW/Windows state)"
-  printf '    %s\n' \
-    "Runs the Mac-side reset for $reset_user now (re-arms the forced password" \
-    "change + OU move) and copies a Windows cleanup one-liner to paste into" \
-    "elevated PS on the machine. After this, the employee signs in for a" \
-    "pristine first-login."
-  local reset_cmd
-  if reset_cmd=$("$SCRIPT_DIR/bin/reset-user" --user "$reset_user"); then
-    printf '%s' "$reset_cmd" | pbcopy
-    gum style --foreground 35 "    ✓ Windows cleanup one-liner copied — paste into the elevated PowerShell."
-  else
-    gum style --foreground 214 "    ⚠  Reset failed for $reset_user — run the reset menu entry manually."
-  fi
-  _pause
-
-  gum style --border rounded --padding "0 1" --foreground 35 \
-    "Done — $first $last is ready." \
-    "Hand off the machine; the employee signs in for a clean first-login."
-}
-
-# ---------------------------------------------------------------------------
 # Menu
 # ---------------------------------------------------------------------------
 
 LABELS=(
-  "▶ Guided onboarding (walk me through it)..."
-  "── Routine: employee workstation setup ──"
-  "Install apps (with Tailscale key)"
-  "GCPW — reset user state (re-test first login)..."
-  "── Migration / one-offs ──"
+  "Set up workstation (apps + Tailscale + Zoiper)"
   "GCPW — new machine setup"
+  "GCPW — reset user state (re-test first login)..."
   "Zoiper — install + configure..."
   "Tailscale — install + join (only)"
   "Tailscale — join network (from .env)"
@@ -321,7 +200,7 @@ dispatch() {
   case "$1" in
     "GCPW — new machine setup")                 new_machine ;;
     "GCPW — reset user state (re-test first login)...") reset_gcpw_user ;;
-    "Install apps (with Tailscale key)")        install_apps ;;
+    "Set up workstation (apps + Tailscale + Zoiper)") install_apps ;;
     "Tailscale — install + join (only)")        install_tailscale ;;
     "Zoiper — install + configure...")             zoiper_setup ;;
     "sage-amg — onboard new user...")           sage_amg_onboard ;;
@@ -346,18 +225,6 @@ select choice in "${LABELS[@]}"; do
   if [[ -f "$SCRIPT_DIR/.env" ]]; then
     # shellcheck disable=SC2046
     export $(grep -v '^#' "$SCRIPT_DIR/.env" | xargs)
-  fi
-
-  # Separator/header rows are not actions.
-  case "$choice" in
-    "── "*) echo; continue ;;
-  esac
-
-  # Guided onboarding runs interactively and manages its own clipboard copies.
-  if [[ "$choice" == "▶ Guided onboarding"* ]]; then
-    onboard_runbook
-    echo
-    continue
   fi
 
   payload=$(dispatch "$choice") || { echo; continue; }

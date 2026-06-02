@@ -28,10 +28,10 @@ ${LINE}
 
   Zoiper
     Config: ${ctx.zoiperConfigPath ?? "not generated"}
-    Activation: handled by install-apps.ps1 (ZOIPER_USERNAME/PASSWORD in .env)
+    Activation: handled by setup-workstation.ps1 (ZOIPER_USERNAME/PASSWORD in .env)
 
 ${LINE}
-  Next: Run bin/copy on the new machine
+  Next: set up the workstation (you'll be prompted), or use bin/copy for one-offs
 ${LINE}
 `);
 }

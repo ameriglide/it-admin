@@ -1,7 +1,8 @@
 #Requires -RunAsAdministrator
 <#
 .SYNOPSIS
-    Installs standard workstation applications via Chocolatey.
+    Sets up a workstation: installs standard apps, joins Tailscale, and
+    optionally configures Zoiper with the employee's SIP login.
 
 .DESCRIPTION
     Installs:
@@ -11,7 +12,11 @@
       - Tailscale
       - Zoiper 5 Free
 
-    Installs Chocolatey if not already present. Skips anything already installed.
+    Installs Chocolatey if not already present. Skips anything already
+    installed, so it is safe to re-run on an already-set-up machine.
+
+    When -SipUser/-SipPassword are supplied, also writes the SIP account into
+    the Default user profile (picked up on the employee's first login).
 
 .PARAMETER TailscaleAuthKey
     Pre-auth key used to join the Tailscale network after install. Required.
@@ -23,6 +28,17 @@
 
 .PARAMETER ZoiperPassword
     Zoiper account password for activating the Pro license.
+
+.PARAMETER SipUser
+    SIP username (e.g. john.doe). When provided with -SipPassword, the SIP
+    account is written into the Default user profile so the phone is ready
+    on first login.
+
+.PARAMETER SipPassword
+    SIP password (paired with -SipUser).
+
+.PARAMETER SipDomain
+    SIP domain. Defaults to phenix.sip.twilio.com.
 
 .PARAMETER Only
     If set, install only the named app(s) and skip post-install bookmarks/Slack/Zoiper sections.
@@ -46,16 +62,19 @@
     Defaults to https://www.ameriglide.com.
 
 .EXAMPLE
-    .\install-apps.ps1 -TailscaleAuthKey "tskey-auth-abc123" -ZoiperUsername "user@example.com" -ZoiperPassword "secret"
+    .\setup-workstation.ps1 -TailscaleAuthKey "tskey-auth-abc123" -ZoiperUsername "user@example.com" -ZoiperPassword "secret" -SipUser "jane.doe" -SipPassword "sippw"
 
 .EXAMPLE
-    .\install-apps.ps1 -TailscaleAuthKey "tskey-auth-abc123" -Only tailscale
+    .\setup-workstation.ps1 -TailscaleAuthKey "tskey-auth-abc123" -Only tailscale
 #>
 
 param(
     [string]$TailscaleAuthKey,
     [string]$ZoiperUsername,
     [string]$ZoiperPassword,
+    [string]$SipUser,
+    [string]$SipPassword,
+    [string]$SipDomain = "phenix.sip.twilio.com",
     [string[]]$Only = @(),
     [string]$Domain = "ameriglide.com",
     [string]$Brand = "AmeriGlide",
@@ -86,13 +105,13 @@ if (-not $TailscaleAuthKey) {
 $ErrorActionPreference = "Stop"
 $ProgressPreference = "SilentlyContinue"
 # Stamped by pre-commit hook -- do not edit manually
-$Script:Revision = "bd3b9e0"
+$Script:Revision = ""
 
-Write-Host "install-apps.ps1 rev $Script:Revision" -ForegroundColor DarkGray
+Write-Host "setup-workstation.ps1 rev $Script:Revision" -ForegroundColor DarkGray
 
 # Check if this is the latest version
 try {
-    $commits = Invoke-RestMethod -Uri "https://api.github.com/repos/ameriglide/it-admin/commits?path=scripts/install-apps.ps1&per_page=2" -ErrorAction Stop
+    $commits = Invoke-RestMethod -Uri "https://api.github.com/repos/ameriglide/it-admin/commits?path=scripts/setup-workstation.ps1&per_page=2" -ErrorAction Stop
     $knownRevs = $commits | ForEach-Object { $_.sha.Substring(0, 7) }
     if ($Script:Revision -ne "dev" -and $Script:Revision -notin $knownRevs) {
         Write-Host ""
@@ -261,6 +280,85 @@ if ($ZoiperUsername -and $ZoiperPassword) {
     Write-Host "Zoiper activation: skipped (no credentials provided)." -ForegroundColor DarkGray
 }
 Write-Host ""
+
+# ---------------------------------------------------------------------------
+# Zoiper SIP account (written into the Default profile so it is ready at the
+# employee's first login). Only runs when SIP credentials are supplied.
+# ---------------------------------------------------------------------------
+if ($SipUser -and $SipPassword) {
+    $zoiperExePath = $null
+    foreach ($dir in @("${env:ProgramFiles}\Zoiper5", "${env:ProgramFiles(x86)}\Zoiper5")) {
+        if (Test-Path "$dir\Zoiper5.exe") { $zoiperExePath = "$dir\Zoiper5.exe"; break }
+    }
+
+    # Firewall rules (prevent a UAC/allow prompt on first launch)
+    Write-Host "Configuring Zoiper firewall rules..." -ForegroundColor Yellow
+    if ($zoiperExePath) {
+        Get-NetFirewallRule -DisplayName "Zoiper5*" -ErrorAction SilentlyContinue | Remove-NetFirewallRule -ErrorAction SilentlyContinue
+        New-NetFirewallRule -DisplayName "Zoiper5 (TCP)" -Direction Inbound -Program $zoiperExePath -Protocol TCP -Action Allow -Profile Any | Out-Null
+        New-NetFirewallRule -DisplayName "Zoiper5 (UDP)" -Direction Inbound -Program $zoiperExePath -Protocol UDP -Action Allow -Profile Any | Out-Null
+        Write-Host "  Firewall rules added for $zoiperExePath" -ForegroundColor Green
+
+        # RUNASINVOKER compat shim: Zoiper5.exe's manifest requests elevation,
+        # so first launch shows a UAC prompt for standard users. This layer
+        # tells Windows to run it as the invoking user instead.
+        $layersKey = "HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\AppCompatFlags\Layers"
+        if (-not (Test-Path $layersKey)) { New-Item -Path $layersKey -Force | Out-Null }
+        New-ItemProperty -Path $layersKey -Name $zoiperExePath -Value "~ RUNASINVOKER" -PropertyType String -Force | Out-Null
+        Write-Host "  RUNASINVOKER shim applied." -ForegroundColor Green
+    } else {
+        Write-Warning "  Zoiper5.exe not found. Firewall rules / shim not applied."
+    }
+
+    Write-Host "Writing SIP config into the Default profile..." -ForegroundColor Yellow
+
+    function EscapeXml([string]$s) {
+        $s.Replace("&","&amp;").Replace("<","&lt;").Replace(">","&gt;").Replace('"',"&quot;").Replace("'","&apos;")
+    }
+
+    $sipXml = @"
+<?xml version="1.0" encoding="utf-8"?>
+<options>
+  <general>
+    <catch_protocol_requests>false</catch_protocol_requests>
+    <integrate_into_outlook>false</integrate_into_outlook>
+  </general>
+  <accounts>
+    <account>
+      <ident>$(EscapeXml "$SipUser@$SipDomain")</ident>
+      <name>$(EscapeXml $SipUser)</name>
+      <protocol>sip</protocol>
+      <username>$(EscapeXml $SipUser)</username>
+      <password>$(EscapeXml $SipPassword)</password>
+      <save_username>true</save_username>
+      <save_password>true</save_password>
+      <register_on_startup>true</register_on_startup>
+      <SIP_domain>$(EscapeXml "${SipDomain}:5061")</SIP_domain>
+      <SIP_transport_type>tls</SIP_transport_type>
+      <SIP_use_rport>true</SIP_use_rport>
+      <SIP_srtp_mode>none</SIP_srtp_mode>
+      <SIP_dtmf_style>rfc_2833</SIP_dtmf_style>
+      <reregistration_mode>custom</reregistration_mode>
+      <reregistration_time>600</reregistration_time>
+      <codecs>
+        <codec><codec_id>0</codec_id><priority>0</priority><enabled>true</enabled></codec>
+        <codec><codec_id>6</codec_id><priority>1</priority><enabled>true</enabled></codec>
+        <codec><codec_id>7</codec_id><priority>2</priority><enabled>true</enabled></codec>
+      </codecs>
+      <stun><use_stun>disabled</use_stun></stun>
+    </account>
+  </accounts>
+</options>
+"@
+
+    $sipConfigDir = "$env:SystemDrive\Users\Default\AppData\Roaming\Zoiper5"
+    if (-not (Test-Path $sipConfigDir)) {
+        New-Item -Path $sipConfigDir -ItemType Directory -Force | Out-Null
+    }
+    Set-Content -Path "$sipConfigDir\Config.xml" -Value $sipXml -Encoding UTF8
+    Write-Host "  SIP config written to $sipConfigDir\Config.xml" -ForegroundColor Green
+}
+Write-Host ""
 }
 
 # ---------------------------------------------------------------------------
@@ -330,7 +428,7 @@ if ($chromeExe) {
     $launcherPath = "$launcherDir\chrome-launcher.ps1"
     if (-not (Test-Path $launcherDir)) { New-Item -Path $launcherDir -ItemType Directory -Force | Out-Null }
     @"
-# Auto-generated by install-apps.ps1. Do not edit; will be overwritten.
+# Auto-generated by setup-workstation.ps1. Do not edit; will be overwritten.
 `$chrome = `"$chromeExe`"
 `$flag = "`$env:LOCALAPPDATA\$Flag2sv"
 `$urls = @("https://phenix.ameriglide.com")
@@ -355,7 +453,7 @@ if (-not (Test-Path `$flag)) {
 if (-not (Test-Path $BrandDir)) { New-Item -Path $BrandDir -ItemType Directory -Force | Out-Null }
 $rdpLauncher = "$BrandDir\sage-amg-rdp.ps1"
 @'
-# Auto-generated by install-apps.ps1. Do not edit; will be overwritten.
+# Auto-generated by setup-workstation.ps1. Do not edit; will be overwritten.
 $samUser = $env:USERNAME
 $user = ($samUser -split '_')[0]
 $rdpFile = "$env:TEMP\sage-amg.rdp"
