@@ -6,3 +6,7 @@ installers/
 !.env.example
 output/
 service-account.json
+# Local secrets archives (e.g. it-admin.env.tbz2 = .env + service-account.json).
+# These bundle the env file and Google service-account key - never commit them.
+*.tbz2
+*.tar.bz2
