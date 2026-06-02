@@ -81,7 +81,7 @@ param(
 $ErrorActionPreference = "Stop"
 $ProgressPreference = "SilentlyContinue"
 # Stamped by pre-commit hook -- do not edit manually
-$Script:Revision = "ec5ba67"
+$Script:Revision = "c58b900"
 
 Write-Host "deploy-gcpw.ps1 rev $Script:Revision" -ForegroundColor DarkGray
 
@@ -472,6 +472,13 @@ if ($NewMachine) {
         New-Item -Path $GcpwRegPath -Force | Out-Null
     }
 
+    # NOTE: This only controls WHO may sign in (domain allow-list). It does NOT
+    # grant local-admin rights. Per-user admin (e.g. Alan, Michael) is configured
+    # in the Google Admin console under Account settings > "Accounts with local
+    # administrative access" and applied via the LocalUsersAndGroups CSP on the
+    # user's next sign-in after device sync. That is intentionally not handled
+    # here. The 'localadmin' account created above is a separate break-glass
+    # fallback that GCPW policy never touches.
     Set-ItemProperty -Path $GcpwRegPath -Name "domains_allowed_to_login" -Value $Domain
     Write-Host "  Set domains_allowed_to_login = $Domain"
 
@@ -814,8 +821,9 @@ if ($Phase -eq 2) {
     Write-Host "Users log in with their Google Workspace credentials."
     Write-Host ""
     Write-Host "Optional cleanup:" -ForegroundColor Yellow
-    Write-Host "  - Once all machines are migrated, delete the backup admin account:"
-    Write-Host "    Remove-LocalUser -Name '$BackupAdminUser'"
+    Write-Host "  - Keep the '$BackupAdminUser' break-glass admin account. It is the only"
+    Write-Host "    guaranteed local login if Google auth / GCPW device sync ever fails,"
+    Write-Host "    so do NOT delete it once migration is done."
     Write-Host "  - Cancel your JumpCloud subscription"
     Write-Host ""
 }

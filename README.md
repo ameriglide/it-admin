@@ -77,6 +77,29 @@ If you omit `-TailscaleAuthKey`, the script will prompt for it and refuse to con
 
 ## Employee Provisioning
 
+### Onboarding runbook (in order)
+
+There are two halves to onboarding and they run in different places. Do them in this order:
+
+| # | Where | As | What | Command |
+|---|-------|----|------|---------|
+| 1 | Mac (it-admin repo) | You/Alan | Provision accounts: Google, Amberjack, Phenix, Twilio + SIP, Zoiper config | `bin/onboard --first <First> --last <Last>` |
+| 2 | Workstation, **elevated** PowerShell | Local admin (OOBE acct / `localadmin`) | GCPW new-machine setup — **only if the machine doesn't already have GCPW** | `bin/copy` → *GCPW — new machine setup* |
+| 3 | Workstation, **elevated** PowerShell | Local admin | Install standard apps + join Tailscale | `bin/copy` → *Install apps (with Tailscale key)* |
+| 4 | Workstation, **elevated** PowerShell | Local admin | Install Zoiper into the **Default user profile** (leave Windows username blank) so it's already there at first login | `bin/copy` → *Zoiper — install + configure* |
+| 5 | Mac / Google Admin Console | You/Alan | Verify the account was created properly (and the device shows under Devices) | — |
+| 6 | Mac (+ workstation) | You/Alan | **Final:** re-arm a clean first-login — resets the password / OU and copies a Windows cleanup one-liner to paste | `bin/copy` → *GCPW — reset user state* |
+
+After step 6, hand off the machine; the employee signs in for a pristine first-login.
+
+Notes:
+
+- **Account creation must come first** (step 1) — the employee can't sign in via GCPW until their Google account exists.
+- The workstation one-liners (`bin/copy`) require an **elevated** PowerShell (`#Requires -RunAsAdministrator`).
+- **Zoiper goes into the Default profile** (step 4), before anyone signs in — the employee's GCPW profile doesn't exist until their first login, so configuring it ahead of time means it's waiting for them.
+- **Local-admin rights** for the employee are not granted by these scripts. They come from the Google Admin console (*Account settings → Accounts with local administrative access*) and take effect on the employee's **next** sign-in after device sync. The `localadmin` account that `deploy-gcpw.ps1` creates is a separate, permanent break-glass admin.
+- For a guided, step-by-step version of this that copies each one-liner to your clipboard as you go, run `bin/copy` → **▶ Guided onboarding**.
+
 ### Onboard a new employee
 
 ```sh
