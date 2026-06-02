@@ -159,7 +159,8 @@ tailscale_key() {
 new_tailscale_key() {
   echo >&2 "  Generating new key via headscale..."
   local key
-  key=$(ssh headscale 'docker exec headscale headscale preauthkeys create --user 1 --reusable' 2>/dev/null)
+  # 2160h = 90 days, so onboarding keys don't silently expire mid-rollout.
+  key=$(ssh headscale 'docker exec headscale headscale preauthkeys create --user 1 --reusable --expiration 2160h' 2>/dev/null)
   if [[ -z "$key" ]]; then
     echo >&2 "  ⚠  Failed to generate key (SSH to headscale failed?)"
     return 1
@@ -173,7 +174,7 @@ new_tailscale_key() {
   # No effect on parent (we run in $(...) subshell), but documents intent.
   # Visibility to other menu options happens via the .env re-source in the loop.
   export TAILSCALE_AUTH_KEY="$key"
-  echo >&2 "  Updated .env with new key (expires in 24h)"
+  echo >&2 "  Saved new key to .env (expires in 90 days)"
   echo "$key"
 }
 
@@ -193,6 +194,15 @@ new_tailscale_key() {
 #     config lands in their GCPW-provisioned profile.
 _pause() {
   printf '\n'
+  # Drain any keystrokes buffered during the previous step (stray Enters, or
+  # input left over by gum) so we wait for a FRESH keypress instead of sailing
+  # through every step on stale newlines. Portable + set -e safe.
+  local _saved
+  if _saved=$(stty -g </dev/tty 2>/dev/null); then
+    stty -icanon min 0 time 0 </dev/tty 2>/dev/null
+    while IFS= read -r -n 1 _ </dev/tty 2>/dev/null; do :; done
+    stty "$_saved" </dev/tty 2>/dev/null
+  fi
   read -r -p "  Press Enter when this step is done (Ctrl-C to abort)... " _ </dev/tty
   printf '\n'
 }
@@ -225,11 +235,14 @@ onboard_runbook() {
     "Work top to bottom. Workstation steps copy a one-liner to your clipboard;" \
     "paste each into an ELEVATED PowerShell on the new machine."
 
+  local onboard_cmd="bin/onboard --first \"$first\" --last \"$last\""
   _step "1/6  Mac: provision accounts" \
     "In the it-admin repo on your Mac (NOT the workstation), run:" \
-    "    bin/onboard --first \"$first\" --last \"$last\"" \
+    "    $onboard_cmd" \
     "Creates Google, Amberjack, Phenix, Twilio + SIP, and the Zoiper config." \
     "Idempotent — re-run to resume. Let it finish before continuing."
+  printf '%s' "$onboard_cmd" | pbcopy
+  gum style --foreground 35 "    ✓ Command copied — paste into your Mac terminal in the it-admin repo."
   _pause
 
   _copy_step "2/6  Workstation (elevated PS): GCPW new-machine setup [only if needed]" "$(new_machine)" \
@@ -261,17 +274,20 @@ onboard_runbook() {
     "sign-in on the machine, that profile gets cleaned up by the next step."
   _pause
 
+  local reset_user
+  reset_user="$(printf '%s.%s' "$first" "$last" | tr '[:upper:]' '[:lower:]')"
   gum style --foreground 35 "  6/6  Final: re-arm a clean first-login (reset GCPW/Windows state)"
   printf '    %s\n' \
-    "Runs the Mac-side reset now (re-arms the forced password change + OU move)" \
-    "and copies a Windows cleanup one-liner to paste into elevated PS on the" \
-    "machine. After this, the employee signs in for a pristine first-login."
+    "Runs the Mac-side reset for $reset_user now (re-arms the forced password" \
+    "change + OU move) and copies a Windows cleanup one-liner to paste into" \
+    "elevated PS on the machine. After this, the employee signs in for a" \
+    "pristine first-login."
   local reset_cmd
-  if reset_cmd=$(reset_gcpw_user); then
+  if reset_cmd=$("$SCRIPT_DIR/bin/reset-user" --user "$reset_user"); then
     printf '%s' "$reset_cmd" | pbcopy
     gum style --foreground 35 "    ✓ Windows cleanup one-liner copied — paste into the elevated PowerShell."
   else
-    gum style --foreground 214 "    ⚠  Skipped reset (no username given)."
+    gum style --foreground 214 "    ⚠  Reset failed for $reset_user — run the reset menu entry manually."
   fi
   _pause
 
@@ -288,14 +304,13 @@ LABELS=(
   "▶ Guided onboarding (walk me through it)..."
   "── Routine: employee workstation setup ──"
   "Install apps (with Tailscale key)"
-  "Zoiper — install + configure..."
-  "Tailscale — install + join (only)"
   "GCPW — reset user state (re-test first login)..."
-  "── Tailscale utilities ──"
-  "Tailscale — join network (from .env)"
-  "Generate new Tailscale key (SSH → headscale)..."
   "── Migration / one-offs ──"
   "GCPW — new machine setup"
+  "Zoiper — install + configure..."
+  "Tailscale — install + join (only)"
+  "Tailscale — join network (from .env)"
+  "Generate new Tailscale key (SSH → headscale, saves to .env)..."
   "sage-amg — onboard new user..."
   "JumpCloud to GCPW — phase 1..."
   "JumpCloud to GCPW — phase 2"
@@ -313,7 +328,7 @@ dispatch() {
     "JumpCloud to GCPW — phase 1...")              migration_phase1 ;;
     "JumpCloud to GCPW — phase 2")               migration_phase2 ;;
     "Tailscale — join network (from .env)")            tailscale_key ;;
-    "Generate new Tailscale key (SSH → headscale)...") new_tailscale_key ;;
+    "Generate new Tailscale key (SSH → headscale, saves to .env)...") new_tailscale_key ;;
     *) return 1 ;;
   esac
 }
