@@ -92,7 +92,10 @@ main() {
   fi
 
   state=$(cat "$STATE_FILE" 2>/dev/null) || true
-  [ -n "$state" ] || state='{}'
+  if ! printf '%s' "$state" | jq -e 'type=="object"' >/dev/null 2>&1; then
+    if [ -n "$state" ]; then logger -t headscale-zombie "WARNING: state file invalid JSON; resetting to {}"; fi
+    state='{}'
+  fi
 
   # First pass: probe reachability for each monitored, online node.
   declare -A ONLINE REACHABLE

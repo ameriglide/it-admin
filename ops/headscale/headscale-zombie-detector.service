@@ -6,3 +6,4 @@ After=docker.service
 Type=oneshot
 EnvironmentFile=/etc/headscale-zombie-detector.env
 ExecStart=/opt/headscale-zombie-detector/headscale-zombie-detector.sh
+TimeoutStartSec=180
