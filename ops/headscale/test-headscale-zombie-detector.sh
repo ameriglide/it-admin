@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
 # Unit tests for the pure decide() function. No docker/tailscale/network needed.
 set -uo pipefail
+set +e                                          # disable errexit before sourcing (sourced script sets -e)
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=/dev/null
 source "$HERE/headscale-zombie-detector.sh"   # guarded: defines functions, runs nothing
-set +e                                          # sourced script enables -e; tests need it off
 
 fail=0
 check() { # check DESC EXPECTED ACTUAL

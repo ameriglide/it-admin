@@ -10,6 +10,15 @@ set -euo pipefail
 #   ONLINE/REACHABLE/HAS_INCIDENT are "true"/"false" strings.
 #   REACHABLE is ignored when ONLINE != "true".
 # Prints exactly one action: reset | resolve | incr | open | noop
+#
+#   ONLINE  REACHABLE  HAS_INCIDENT            -> ACTION
+#   false   (ignored)  false                   -> reset
+#   false   (ignored)  true                    -> resolve
+#   true    true       false                   -> reset
+#   true    true       true                    -> resolve
+#   true    false      true                    -> noop
+#   true    false      false  (fails+1<thresh) -> incr
+#   true    false      false  (fails+1>=thresh)-> open
 decide() {
   local prev_fails="$1" online="$2" reachable="$3" has_incident="$4" threshold="$5"
   if [ "$online" != "true" ]; then
