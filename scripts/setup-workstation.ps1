@@ -94,7 +94,7 @@ function Should-Run([string]$id) {
 # Disable progress bar - speeds up Invoke-WebRequest dramatically
 $ProgressPreference = 'SilentlyContinue'
 
-if (-not $TailscaleAuthKey) {
+if ((Should-Run "tailscale") -and -not $TailscaleAuthKey) {
     $TailscaleAuthKey = Read-Host "Tailscale auth key (tskey-auth-...)"
 }
 if (-not $TailscaleAuthKey) {
@@ -105,7 +105,7 @@ if (-not $TailscaleAuthKey) {
 $ErrorActionPreference = "Stop"
 $ProgressPreference = "SilentlyContinue"
 # Stamped by pre-commit hook -- do not edit manually
-$Script:Revision = "41faf4e"
+$Script:Revision = "7fff948"
 
 Write-Host "setup-workstation.ps1 rev $Script:Revision" -ForegroundColor DarkGray
 
@@ -229,6 +229,30 @@ if ($tsCmd) {
 } else {
     Write-Warning "  Tailscale CLI not found. May require a reboot before auth."
 }
+Write-Host ""
+}
+
+# ---------------------------------------------------------------------------
+# Tailscale watchdog (self-heal only -- workstations get no heartbeat)
+# ---------------------------------------------------------------------------
+if (Should-Run "watchdog") {
+Write-Host "Installing Tailscale watchdog..." -ForegroundColor Yellow
+$wdBase = Join-Path $env:ProgramData 'ag-admin'
+New-Item -ItemType Directory -Path $wdBase -Force | Out-Null
+
+$wdConfig = [ordered]@{
+    heartbeatUrl                     = $null
+    anchors                          = @('100.64.0.4','100.64.0.11')
+    intervalMinutes                  = 5
+    minRestartGapMinutes             = 10
+    maxRestartsPerHour               = 3
+    consecutiveFailuresBeforeRestart = 2
+}
+$wdConfig | ConvertTo-Json | Set-Content -Path (Join-Path $wdBase 'tailscale-watchdog.config.json')
+Copy-Item -Path (Join-Path $PSScriptRoot 'watchdog-core.ps1')      -Destination $wdBase -Force
+Copy-Item -Path (Join-Path $PSScriptRoot 'tailscale-watchdog.ps1') -Destination $wdBase -Force
+& (Join-Path $PSScriptRoot 'register-watchdog-task.ps1')
+Write-Host "  Watchdog installed (self-heal only)." -ForegroundColor Green
 Write-Host ""
 }
 
