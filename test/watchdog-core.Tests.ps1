@@ -21,11 +21,18 @@ Describe 'Get-WatchdogAction' {
         $r.State.ConsecutiveFailures | Should -Be 0
     }
 
-    It 'is a healthy no-op when no heartbeat (workstation)' {
+    It 'debounces on first unhealthy cycle even without a heartbeat' {
         $s = New-WatchdogState
         $r = Get-WatchdogAction -InternetUp $true -TailnetUp $false -HasHeartbeat $false -State $s -Config $cfg -NowEpoch $now
         # first unhealthy cycle still debounces regardless of heartbeat
         $r.Action | Should -Be 'wait'
+    }
+
+    It 'returns healthy (no beat) when tailnet up and no heartbeat configured' {
+        $s = New-WatchdogState
+        $r = Get-WatchdogAction -InternetUp $true -TailnetUp $true -HasHeartbeat $false -State $s -Config $cfg -NowEpoch $now
+        $r.Action | Should -Be 'healthy'
+        $r.State.ConsecutiveFailures | Should -Be 0
     }
 
     It 'waits on the first unhealthy cycle (debounce)' {
@@ -52,7 +59,7 @@ Describe 'Get-WatchdogAction' {
 
     It 'caps restarts per hour' {
         $s = New-WatchdogState; $s.ConsecutiveFailures = 1
-        $s.RestartEpochs = @(($now-1800), ($now-1200), ($now-700)); $s.LastRestartEpoch = $now - 700
+        $s.RestartEpochs = @(($now-1800), ($now-1200), ($now-60)); $s.LastRestartEpoch = $now - 60
         $r = Get-WatchdogAction -InternetUp $true -TailnetUp $false -HasHeartbeat $true -State $s -Config $cfg -NowEpoch $now
         $r.Action | Should -Be 'capped'
     }
