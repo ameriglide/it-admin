@@ -8,6 +8,9 @@ STALE_SECONDS="${STALE_SECONDS:-900}"
 STATE_FILE="${STATE_FILE:-/var/lib/headscale-zombie-detector/state.json}"
 CONTAINER="${HEADSCALE_CONTAINER:-headscale}"
 REQUESTER_EMAIL="${REQUESTER_EMAIL:-it@ameriglide.com}"
+# The API token spans multiple Better Stack teams, so incident creates must name
+# the team explicitly or the API returns 422.
+BETTERSTACK_TEAM_ID="${BETTERSTACK_TEAM_ID:-540247}"
 DRY_RUN="${DRY_RUN:-0}"
 : "${BETTERSTACK_API_TOKEN:?BETTERSTACK_API_TOKEN required}"
 
@@ -37,7 +40,7 @@ bs_create() {
   local resp
   resp=$(curl -sf -X POST https://uptime.betterstack.com/api/v2/incidents \
     -H "Authorization: Bearer $BETTERSTACK_API_TOKEN" -H 'Content-Type: application/json' \
-    -d "{\"summary\":\"Tailnet zombie: $node\",\"description\":\"Node $node is online in Headscale but last_seen is stale (> ${STALE_SECONDS}s). Likely a half-closed Tailscale control connection. Restart the Tailscale service on $node.\",\"requester_email\":\"$REQUESTER_EMAIL\",\"call\":false,\"sms\":false,\"email\":true}") || { echo ""; return; }
+    -d "{\"summary\":\"Tailnet zombie: $node\",\"description\":\"Node $node is online in Headscale but last_seen is stale (> ${STALE_SECONDS}s). Likely a half-closed Tailscale control connection. Restart the Tailscale service on $node.\",\"requester_email\":\"$REQUESTER_EMAIL\",\"call\":false,\"sms\":false,\"email\":true,\"better_stack_team_id\":$BETTERSTACK_TEAM_ID}") || { echo ""; return; }
   echo "$resp" | jq -r '.data.id // empty'
 }
 

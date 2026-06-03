@@ -6,11 +6,12 @@
 param(
     [Parameter(Mandatory)][ValidateSet('sage-amg','sage-iai','sage-server')][string]$Server,
     [string]$BetterStackApiToken = $env:BETTERSTACK_API_TOKEN,
+    [int]$BetterStackTeamId = 540247,
     [string]$VectorSourceToken,
     [switch]$SkipVector
 )
 $ErrorActionPreference = 'Stop'
-$Script:Revision = ""
+$Script:Revision = "32d7111"
 
 if (-not $BetterStackApiToken) { throw "BetterStack API token required (-BetterStackApiToken or BETTERSTACK_API_TOKEN)." }
 
@@ -33,7 +34,9 @@ if ($existing) {
     $hbUrl = $existing.attributes.url
     Write-Host "Reusing heartbeat '$hbName'." -ForegroundColor Green
 } else {
-    $body = @{ name = $hbName; period = 300; grace = 900 } | ConvertTo-Json
+    # The API token spans multiple Better Stack teams, so create calls must name
+    # the team explicitly or the API returns 422.
+    $body = @{ name = $hbName; period = 300; grace = 900; better_stack_team_id = $BetterStackTeamId } | ConvertTo-Json
     $created = Invoke-RestMethod -Uri 'https://uptime.betterstack.com/api/v2/heartbeats' -Headers $headers -Method Post -Body $body -ContentType 'application/json'
     $hbUrl = $created.data.attributes.url
     Write-Host "Created heartbeat '$hbName'." -ForegroundColor Green

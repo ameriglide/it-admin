@@ -17,6 +17,7 @@ sudo cp headscale-zombie-detector.service headscale-zombie-detector.timer /etc/s
 # Secrets / config (not committed):
 sudo tee /etc/headscale-zombie-detector.env >/dev/null <<'EOF'
 BETTERSTACK_API_TOKEN=...
+BETTERSTACK_TEAM_ID=540247
 REQUESTER_EMAIL=it@ameriglide.com
 STALE_SECONDS=900
 HEADSCALE_CONTAINER=headscale
