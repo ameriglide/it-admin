@@ -18,9 +18,14 @@ now=$(date +%s)
 nodes_json=$(docker exec "$CONTAINER" headscale nodes list -o json)
 
 zombies=$(echo "$nodes_json" | jq -r --argjson now "$now" --argjson stale "$STALE_SECONDS" '
+  def epoch:
+    if (.last_seen | type) == "object" then (.last_seen.seconds // 0)
+    elif (.last_seen | type) == "string" then (try (.last_seen | fromdateiso8601) catch 0)
+    else 0 end;
   .[]
   | select(.online == true)
-  | select((($now) - (.last_seen.seconds // 0)) > $stale)
+  | (epoch) as $ls
+  | select($ls > 0 and ($now - $ls) > $stale)
   | .given_name')
 
 state=$(cat "$STATE_FILE")
@@ -29,17 +34,18 @@ new_state="$state"
 bs_create() {
   local node="$1"
   if [ "$DRY_RUN" = "1" ]; then echo "DRYRUN-$node"; return; fi
-  curl -sf -X POST https://uptime.betterstack.com/api/v2/incidents \
+  local resp
+  resp=$(curl -sf -X POST https://uptime.betterstack.com/api/v2/incidents \
     -H "Authorization: Bearer $BETTERSTACK_API_TOKEN" -H 'Content-Type: application/json' \
-    -d "{\"summary\":\"Tailnet zombie: $node\",\"description\":\"Node $node is online in Headscale but last_seen is stale (> ${STALE_SECONDS}s). Likely a half-closed Tailscale control connection. Restart the Tailscale service on $node.\",\"requester_email\":\"$REQUESTER_EMAIL\",\"call\":false,\"sms\":false,\"email\":true}" \
-    | jq -r '.data.id'
+    -d "{\"summary\":\"Tailnet zombie: $node\",\"description\":\"Node $node is online in Headscale but last_seen is stale (> ${STALE_SECONDS}s). Likely a half-closed Tailscale control connection. Restart the Tailscale service on $node.\",\"requester_email\":\"$REQUESTER_EMAIL\",\"call\":false,\"sms\":false,\"email\":true}") || { echo ""; return; }
+  echo "$resp" | jq -r '.data.id // empty'
 }
 
 bs_resolve() {
   local id="$1"
-  if [ "$DRY_RUN" = "1" ]; then echo "DRYRUN resolve $id"; return; fi
+  if [ "$DRY_RUN" = "1" ]; then echo "DRYRUN resolve $id"; return 0; fi
   curl -sf -X POST "https://uptime.betterstack.com/api/v2/incidents/${id}/resolve" \
-    -H "Authorization: Bearer $BETTERSTACK_API_TOKEN" >/dev/null || true
+    -H "Authorization: Bearer $BETTERSTACK_API_TOKEN" >/dev/null
 }
 
 # Open incidents for newly-zombied nodes.
@@ -48,8 +54,12 @@ for z in $zombies; do
   open_id=$(echo "$state" | jq -r --arg n "$z" '.[$n] // empty')
   if [ -z "$open_id" ]; then
     id=$(bs_create "$z")
-    new_state=$(echo "$new_state" | jq --arg n "$z" --arg id "$id" '.[$n]=$id')
-    logger -t headscale-zombie "opened incident $id for $z"
+    if [ -n "$id" ]; then
+      new_state=$(echo "$new_state" | jq --arg n "$z" --arg id "$id" '.[$n]=$id')
+      logger -t headscale-zombie "opened incident $id for $z"
+    else
+      logger -t headscale-zombie "WARNING: failed to open incident for $z (will retry next run)"
+    fi
   fi
 done
 
@@ -57,9 +67,12 @@ done
 for n in $(echo "$state" | jq -r 'keys[]'); do
   if ! echo "$zombies" | grep -qx "$n"; then
     id=$(echo "$state" | jq -r --arg n "$n" '.[$n]')
-    bs_resolve "$id"
-    new_state=$(echo "$new_state" | jq --arg n "$n" 'del(.[$n])')
-    logger -t headscale-zombie "resolved incident $id for $n"
+    if bs_resolve "$id"; then
+      new_state=$(echo "$new_state" | jq --arg n "$n" 'del(.[$n])')
+      logger -t headscale-zombie "resolved incident $id for $n"
+    else
+      logger -t headscale-zombie "WARNING: failed to resolve incident $id for $n (will retry)"
+    fi
   fi
 done
 
