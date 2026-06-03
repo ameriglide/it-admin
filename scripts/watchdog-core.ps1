@@ -1,7 +1,7 @@
 # watchdog-core.ps1
 # Pure decision logic for the Tailscale watchdog. No I/O and no Windows-only
 # cmdlets, so it runs under Pester on any platform. ASCII only.
-$Script:Revision = 'dev'
+$Script:Revision = "7b9fef5"
 
 function New-WatchdogState {
     return [pscustomobject]@{
