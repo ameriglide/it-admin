@@ -47,6 +47,27 @@ probe_reachable() {
   return 1
 }
 
+# bs_create NODE CHECKS -> prints new incident id (empty on failure).
+bs_create() {
+  local node="$1" checks="$2" resp desc
+  if [ "${DRY_RUN:-0}" = "1" ]; then echo "DRYRUN-$node"; return; fi
+  desc="Node $node is online in Headscale but unreachable via tailscale ping for $checks consecutive checks. Likely a half-closed Tailscale control connection. Restart the Tailscale service on $node or check the host."
+  resp=$(curl -sf -X POST https://uptime.betterstack.com/api/v2/incidents \
+    -H "Authorization: Bearer $BETTERSTACK_API_TOKEN" -H 'Content-Type: application/json' \
+    -d "$(jq -nc --arg s "Tailnet zombie: $node" --arg d "$desc" --arg e "$REQUESTER_EMAIL" --argjson t "$BETTERSTACK_TEAM_ID" \
+        '{summary:$s,description:$d,requester_email:$e,call:false,sms:false,email:true,better_stack_team_id:$t}')") \
+    || { echo ""; return; }
+  echo "$resp" | jq -r '.data.id // empty'
+}
+
+# bs_resolve ID -> exit 0 on success.
+bs_resolve() {
+  local id="$1"
+  if [ "${DRY_RUN:-0}" = "1" ]; then echo "DRYRUN resolve $id" >&2; return 0; fi
+  curl -sf -X POST "https://uptime.betterstack.com/api/v2/incidents/${id}/resolve" \
+    -H "Authorization: Bearer $BETTERSTACK_API_TOKEN" >/dev/null
+}
+
 main() {
   CONTAINER="${HEADSCALE_CONTAINER:-headscale}"
   STATE_FILE="${STATE_FILE:-/var/lib/headscale-zombie-detector/state.json}"
@@ -95,6 +116,58 @@ main() {
     logger -t headscale-zombie "WARNING: 0/$online_count online monitored nodes reachable; assuming local tailscale/DERP issue, skipping run"
     echo "WARNING: 0/$online_count online monitored nodes reachable; skipping run" >&2
     exit 0
+  fi
+
+  # Second pass: apply per-node decisions.
+  new_state="$state"
+  # shellcheck disable=SC2086  # intentional word-split: MONITORED_NODES is space-separated
+  for node in $MONITORED_NODES; do
+    [ "${ONLINE[$node]}" = "absent" ] && continue
+    prev_fails=$(echo "$state" | jq -r --arg n "$node" '.[$n].fails // 0')
+    incident=$(echo "$state" | jq -r --arg n "$node" '.[$n].incident // empty')
+    if [ -n "$incident" ]; then has_incident="true"; else has_incident="false"; fi
+    action=$(decide "$prev_fails" "${ONLINE[$node]}" "${REACHABLE[$node]:-false}" "$has_incident" "$THRESHOLD")
+    next_fails=$(( prev_fails + 1 ))
+    case "$action" in
+      reset)
+        new_state=$(echo "$new_state" | jq --arg n "$node" '.[$n]={fails:0,incident:null}') ;;
+      incr)
+        new_state=$(echo "$new_state" | jq --arg n "$node" --argjson f "$next_fails" '.[$n]={fails:$f,incident:null}')
+        logger -t headscale-zombie "unreachable $node ($next_fails/$THRESHOLD)" ;;
+      open)
+        id=$(bs_create "$node" "$next_fails")
+        if [ -n "$id" ]; then
+          new_state=$(echo "$new_state" | jq --arg n "$node" --argjson f "$next_fails" --arg id "$id" '.[$n]={fails:$f,incident:$id}')
+          logger -t headscale-zombie "opened incident $id for $node (online in headscale, unreachable)"
+        else
+          new_state=$(echo "$new_state" | jq --arg n "$node" --argjson f "$next_fails" '.[$n]={fails:$f,incident:null}')
+          logger -t headscale-zombie "WARNING: failed to open incident for $node (will retry)"
+        fi ;;
+      resolve)
+        if bs_resolve "$incident"; then
+          new_state=$(echo "$new_state" | jq --arg n "$node" '.[$n]={fails:0,incident:null}')
+          logger -t headscale-zombie "resolved incident $incident for $node (recovered)"
+        else
+          logger -t headscale-zombie "WARNING: failed to resolve incident $incident for $node (will retry)"
+        fi ;;
+      noop) : ;;
+    esac
+  done
+
+  # Prune nodes no longer in MONITORED_NODES: resolve their incidents, drop them.
+  # shellcheck disable=SC2086  # intentional word-split: MONITORED_NODES is space-separated
+  for node in $(echo "$state" | jq -r 'keys[]'); do
+    if ! printf '%s\n' $MONITORED_NODES | grep -qx "$node"; then
+      incident=$(echo "$state" | jq -r --arg n "$node" '.[$n].incident // empty')
+      [ -n "$incident" ] && { bs_resolve "$incident" || true; }
+      new_state=$(echo "$new_state" | jq --arg n "$node" 'del(.[$n])')
+    fi
+  done
+
+  if [ "$DRY_RUN" = "1" ]; then
+    echo "[DRY_RUN] resulting state:"; echo "$new_state" | jq .
+  else
+    echo "$new_state" > "$STATE_FILE"
   fi
 }
 
