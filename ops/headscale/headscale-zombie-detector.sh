@@ -78,8 +78,10 @@ main() {
   : "${MONITORED_NODES:?MONITORED_NODES required (space-separated given_names)}"
   if [ "$DRY_RUN" != "1" ]; then : "${BETTERSTACK_API_TOKEN:?BETTERSTACK_API_TOKEN required}"; fi
 
-  mkdir -p "$(dirname "$STATE_FILE")"
-  [ -f "$STATE_FILE" ] || echo '{}' > "$STATE_FILE"
+  if [ "$DRY_RUN" != "1" ]; then
+    mkdir -p "$(dirname "$STATE_FILE")"
+    [ -f "$STATE_FILE" ] || echo '{}' > "$STATE_FILE"
+  fi
 
   # Inventory. Fail safe on any error or unexpected shape.
   if ! nodes_json=$(docker exec "$CONTAINER" headscale nodes list -o json 2>/dev/null) \
@@ -89,7 +91,8 @@ main() {
     exit 0
   fi
 
-  state=$(cat "$STATE_FILE")
+  state=$(cat "$STATE_FILE" 2>/dev/null) || true
+  [ -n "$state" ] || state='{}'
 
   # First pass: probe reachability for each monitored, online node.
   declare -A ONLINE REACHABLE
@@ -127,7 +130,7 @@ main() {
     incident=$(echo "$state" | jq -r --arg n "$node" '.[$n].incident // empty')
     if [ -n "$incident" ]; then has_incident="true"; else has_incident="false"; fi
     action=$(decide "$prev_fails" "${ONLINE[$node]}" "${REACHABLE[$node]:-false}" "$has_incident" "$THRESHOLD")
-    next_fails=$(( prev_fails + 1 ))
+    next_fails=$(( prev_fails + 1 > THRESHOLD ? THRESHOLD : prev_fails + 1 ))
     case "$action" in
       reset)
         new_state=$(echo "$new_state" | jq --arg n "$node" '.[$n]={fails:0,incident:null}') ;;
@@ -151,6 +154,7 @@ main() {
           logger -t headscale-zombie "WARNING: failed to resolve incident $incident for $node (will retry)"
         fi ;;
       noop) : ;;
+      *) logger -t headscale-zombie "BUG: unknown action '$action' for $node" ;;
     esac
   done
 
@@ -167,7 +171,7 @@ main() {
   if [ "$DRY_RUN" = "1" ]; then
     echo "[DRY_RUN] resulting state:"; echo "$new_state" | jq .
   else
-    echo "$new_state" > "$STATE_FILE"
+    tmp=$(mktemp "${STATE_FILE}.XXXXXX") && printf '%s\n' "$new_state" > "$tmp" && mv "$tmp" "$STATE_FILE"
   fi
 }
 
