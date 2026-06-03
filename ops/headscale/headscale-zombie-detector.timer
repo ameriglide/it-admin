@@ -1,0 +1,10 @@
+[Unit]
+Description=Run the Headscale zombie detector every 5 minutes
+
+[Timer]
+OnBootSec=2min
+OnUnitActiveSec=5min
+Unit=headscale-zombie-detector.service
+
+[Install]
+WantedBy=timers.target

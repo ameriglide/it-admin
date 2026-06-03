@@ -94,7 +94,7 @@ function Should-Run([string]$id) {
 # Disable progress bar - speeds up Invoke-WebRequest dramatically
 $ProgressPreference = 'SilentlyContinue'
 
-if (-not $TailscaleAuthKey) {
+if ((Should-Run "tailscale") -and -not $TailscaleAuthKey) {
     $TailscaleAuthKey = Read-Host "Tailscale auth key (tskey-auth-...)"
 }
 if (-not $TailscaleAuthKey) {
@@ -105,7 +105,7 @@ if (-not $TailscaleAuthKey) {
 $ErrorActionPreference = "Stop"
 $ProgressPreference = "SilentlyContinue"
 # Stamped by pre-commit hook -- do not edit manually
-$Script:Revision = "7fff948"
+$Script:Revision = "2ad0883"
 
 Write-Host "setup-workstation.ps1 rev $Script:Revision" -ForegroundColor DarkGray
 
@@ -235,6 +235,47 @@ if ($tsCmd) {
     Set-ItemProperty -Path $regPath -Name "UnattendedMode" -Value "always" -Type String
 } else {
     Write-Warning "  Tailscale CLI not found. May require a reboot before auth."
+}
+Write-Host ""
+}
+
+# ---------------------------------------------------------------------------
+# Tailscale watchdog (self-heal only -- workstations get no heartbeat)
+# ---------------------------------------------------------------------------
+if (Should-Run "watchdog") {
+Write-Host "Installing Tailscale watchdog..." -ForegroundColor Yellow
+try {
+    $wdBase = Join-Path $env:ProgramData 'ag-admin'
+    New-Item -ItemType Directory -Path $wdBase -Force | Out-Null
+
+    $wdConfig = [ordered]@{
+        heartbeatUrl                     = $null
+        anchors                          = @('100.64.0.4','100.64.0.11')
+        intervalMinutes                  = 5
+        minRestartGapMinutes             = 10
+        maxRestartsPerHour               = 3
+        consecutiveFailuresBeforeRestart = 2
+    }
+    $wdConfig | ConvertTo-Json | Set-Content -Path (Join-Path $wdBase 'tailscale-watchdog.config.json')
+
+    # Resolve each watchdog script from a local sibling (repo clone) or download
+    # it from the public it-admin repo (standalone %TEMP% delivery via the one-liner).
+    $rawBase = 'https://raw.githubusercontent.com/ameriglide/it-admin/main/scripts'
+    $regScript = $null
+    foreach ($f in @('watchdog-core.ps1', 'tailscale-watchdog.ps1', 'register-watchdog-task.ps1')) {
+        $dest = Join-Path $wdBase $f
+        $sibling = Join-Path $PSScriptRoot $f
+        if (Test-Path $sibling) {
+            Copy-Item -Path $sibling -Destination $dest -Force
+        } else {
+            Invoke-WebRequest -Uri "$rawBase/$f" -OutFile $dest -UseBasicParsing
+        }
+        if ($f -eq 'register-watchdog-task.ps1') { $regScript = $dest }
+    }
+    & $regScript
+    Write-Host "  Watchdog installed (self-heal only)." -ForegroundColor Green
+} catch {
+    Write-Warning "  Watchdog install skipped: $($_.Exception.Message)"
 }
 Write-Host ""
 }

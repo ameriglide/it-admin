@@ -1,0 +1,8 @@
+[Unit]
+Description=Headscale zombie-node detector
+After=docker.service
+
+[Service]
+Type=oneshot
+EnvironmentFile=/etc/headscale-zombie-detector.env
+ExecStart=/opt/headscale-zombie-detector/headscale-zombie-detector.sh
