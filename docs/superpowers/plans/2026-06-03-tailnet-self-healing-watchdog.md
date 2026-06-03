@@ -33,7 +33,7 @@ Design: `docs/superpowers/specs/2026-06-03-tailnet-self-healing-watchdog-design.
 ## Conventions (apply to every task)
 
 - **ASCII-only** in all `.ps1` files (comments AND strings). Before committing any task that touches `.ps1`, run: `grep -P '[^\x00-\x7F]' scripts/*.ps1` (must be empty).
-- `$Script:Revision = 'dev'` near the top of each new `.ps1`; the pre-commit hook stamps it.
+- `$Script:Revision = "dev"` near the top of each new `.ps1` (DOUBLE quotes — the `.husky/pre-commit` sed pattern only stamps double-quoted assignments; single quotes are silently skipped); the pre-commit hook stamps it.
 - Commit after every task.
 
 ## Prerequisite: local pwsh + Pester (one-time)
@@ -91,7 +91,7 @@ Create `scripts/watchdog-core.ps1`:
 # watchdog-core.ps1
 # Pure decision logic for the Tailscale watchdog. No I/O and no Windows-only
 # cmdlets, so it runs under Pester on any platform. ASCII only.
-$Script:Revision = 'dev'
+$Script:Revision = "dev"
 
 function New-WatchdogState {
     return [pscustomobject]@{
@@ -255,7 +255,7 @@ Create `scripts/tailscale-watchdog.ps1`:
 param([switch]$DryRun)
 
 $ErrorActionPreference = 'Stop'
-$Script:Revision = 'dev'
+$Script:Revision = "dev"
 
 $BaseDir    = Join-Path $env:ProgramData 'ag-admin'
 $CorePath   = Join-Path $BaseDir 'watchdog-core.ps1'
@@ -394,7 +394,7 @@ Create `scripts/register-watchdog-task.ps1`:
 # Registers (idempotently) the AG Tailscale Watchdog scheduled task: SYSTEM,
 # every 5 minutes, plus at startup. ASCII only.
 $ErrorActionPreference = 'Stop'
-$Script:Revision = 'dev'
+$Script:Revision = "dev"
 
 $taskName   = 'AG Tailscale Watchdog'
 $scriptPath = Join-Path $env:ProgramData 'ag-admin\tailscale-watchdog.ps1'
@@ -456,7 +456,7 @@ param(
     [string]$VectorVersion = '0.40.0'
 )
 $ErrorActionPreference = 'Stop'
-$Script:Revision = 'dev'
+$Script:Revision = "dev"
 
 $vectorDir  = 'C:\Program Files\Vector'
 $configPath = Join-Path $vectorDir 'vector.yaml'
@@ -540,7 +540,7 @@ param(
     [switch]$SkipVector
 )
 $ErrorActionPreference = 'Stop'
-$Script:Revision = 'dev'
+$Script:Revision = "dev"
 
 if (-not $BetterStackApiToken) { throw "BetterStack API token required (-BetterStackApiToken or BETTERSTACK_API_TOKEN)." }
 
