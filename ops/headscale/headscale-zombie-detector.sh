@@ -97,9 +97,14 @@ main() {
   # First pass: probe reachability for each monitored, online node.
   declare -A ONLINE REACHABLE
   online_count=0; reachable_count=0
+  # shellcheck disable=SC2086  # intentional word-split: MONITORED_NODES is space-separated
   for node in $MONITORED_NODES; do
     row=$(echo "$nodes_json" | jq -c --arg n "$node" 'map(select(.given_name==$n)) | .[0] // empty')
-    if [ -z "$row" ]; then ONLINE[$node]="absent"; continue; fi
+    if [ -z "$row" ]; then
+      ONLINE[$node]="absent"
+      if [ "$DRY_RUN" = "1" ]; then echo "[DRY_RUN] $node: ABSENT (not in headscale)"; fi
+      continue
+    fi
     online=$(echo "$row" | jq -r '.online // false')
     ONLINE[$node]="$online"
     if [ "$online" = "true" ]; then
@@ -107,9 +112,13 @@ main() {
       ip=$(echo "$row" | jq -r '[.ip_addresses[] | select(test(":")|not)][0] // empty')
       if [ -n "$ip" ] && probe_reachable "$ip"; then
         REACHABLE[$node]="true"; reachable_count=$(( reachable_count + 1 ))
+        if [ "$DRY_RUN" = "1" ]; then echo "[DRY_RUN] $node: online + REACHABLE ($ip) -> ok"; fi
       else
         REACHABLE[$node]="false"
+        if [ "$DRY_RUN" = "1" ]; then echo "[DRY_RUN] $node: online + UNREACHABLE ($ip) -> suspect"; fi
       fi
+    else
+      if [ "$DRY_RUN" = "1" ]; then echo "[DRY_RUN] $node: offline ($online) -> skip"; fi
     fi
   done
 
