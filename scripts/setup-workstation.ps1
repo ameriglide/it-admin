@@ -105,7 +105,7 @@ if (-not $TailscaleAuthKey) {
 $ErrorActionPreference = "Stop"
 $ProgressPreference = "SilentlyContinue"
 # Stamped by pre-commit hook -- do not edit manually
-$Script:Revision = "41faf4e"
+$Script:Revision = "7fff948"
 
 Write-Host "setup-workstation.ps1 rev $Script:Revision" -ForegroundColor DarkGray
 
@@ -214,6 +214,13 @@ if (-not $tsCmd) {
 }
 
 if ($tsCmd) {
+    # If Tailscale is running in server mode under a different user the CLI
+    # returns 401. Restart the service so the calling account can auth.
+    $tsSvc = Get-Service tailscale -ErrorAction SilentlyContinue
+    if ($tsSvc -and $tsSvc.Status -eq 'Running') {
+        Stop-Service tailscale -Force -ErrorAction SilentlyContinue
+        Start-Sleep 2
+    }
     & $tsCmd up --login-server https://headscale.mage.net --auth-key $TailscaleAuthKey --unattended --timeout 30s
     if ($LASTEXITCODE -eq 0) {
         Write-Host "  Joined Tailscale network." -ForegroundColor Green
