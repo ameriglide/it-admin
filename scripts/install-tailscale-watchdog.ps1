@@ -4,14 +4,15 @@
 # Vector host_metrics. Run once per server. ASCII only.
 [CmdletBinding()]
 param(
-    [Parameter(Mandatory)][ValidateSet('sage-amg','sage-iai','sage-server')][string]$Server,
+    [Parameter(Mandatory)][string]$Server,
+    [Parameter(Mandatory)][string[]]$Anchors,
     [string]$BetterStackApiToken = $env:BETTERSTACK_UPTIME_TOKEN,
     [int]$PolicyId = 114897,
     [string]$VectorSourceToken,
     [switch]$SkipVector
 )
 $ErrorActionPreference = 'Stop'
-$Script:Revision = "27b82bd"
+$Script:Revision = "32a6198"
 
 if (-not $BetterStackApiToken) { throw "BetterStack API token required (-BetterStackApiToken or BETTERSTACK_UPTIME_TOKEN)." }
 
@@ -30,13 +31,6 @@ function Get-RepoScript {
     Invoke-WebRequest -Uri "$RawBase/$Name" -OutFile $dest -UseBasicParsing
     return $dest
 }
-
-$anchorMap = @{
-    'sage-amg'    = @('100.64.0.4','100.64.0.11','100.64.0.10')
-    'sage-iai'    = @('100.64.0.4','100.64.0.11','100.64.0.9')
-    'sage-server' = @('100.64.0.4','100.64.0.9','100.64.0.10')
-}
-$anchors = $anchorMap[$Server]
 
 # 1. Provision or reuse the heartbeat.
 $headers = @{ Authorization = "Bearer $BetterStackApiToken" }
@@ -67,7 +61,7 @@ if ($existing) {
 # 2. Write config.
 $config = [ordered]@{
     heartbeatUrl                     = $hbUrl
-    anchors                          = $anchors
+    anchors                          = $Anchors
     intervalMinutes                  = 5
     minRestartGapMinutes             = 10
     maxRestartsPerHour               = 3
@@ -82,13 +76,11 @@ Copy-Item -Path (Get-RepoScript 'tailscale-watchdog.ps1') -Destination $BaseDir 
 # 4. Register the scheduled task.
 & (Get-RepoScript 'register-watchdog-task.ps1')
 
-# 5. Bundle Vector host_metrics for the two boxes not yet onboarded (AMG-403).
-if (-not $SkipVector -and $Server -in @('sage-iai','sage-server')) {
-    if (-not $VectorSourceToken) {
-        Write-Warning "VectorSourceToken not supplied; skipping Vector host_metrics (AMG-403). Re-run with -VectorSourceToken to onboard metrics."
-    } else {
-        & (Get-RepoScript 'install-vector-host-metrics.ps1') -SourceToken $VectorSourceToken
-    }
+# 5. Bundle Vector host_metrics when a source token is supplied (AMG-403).
+# install-vector-host-metrics.ps1 is idempotent (skips the binary if already
+# present), so passing a token for an already-onboarded box is safe.
+if (-not $SkipVector -and $VectorSourceToken) {
+    & (Get-RepoScript 'install-vector-host-metrics.ps1') -SourceToken $VectorSourceToken
 }
 
 Write-Host "Watchdog installed on $Server." -ForegroundColor Green

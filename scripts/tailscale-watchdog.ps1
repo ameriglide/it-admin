@@ -5,7 +5,7 @@
 param([switch]$DryRun)
 
 $ErrorActionPreference = 'Stop'
-$Script:Revision = "27b82bd"
+$Script:Revision = "32a6198"
 
 $BaseDir    = Join-Path $env:ProgramData 'ag-admin'
 $CorePath   = Join-Path $BaseDir 'watchdog-core.ps1'
@@ -55,7 +55,7 @@ function Save-WatchdogState {
 }
 
 function Test-OutboundConnectivity {
-    foreach ($t in @(@{H='headscale.mage.net';P=443}, @{H='1.1.1.1';P=443})) {
+    foreach ($t in @(@{H='1.1.1.1';P=443}, @{H='8.8.8.8';P=443})) {
         try {
             $r = Test-NetConnection -ComputerName $t.H -Port $t.P -WarningAction SilentlyContinue
             if ($r.TcpTestSucceeded) { return $true }
