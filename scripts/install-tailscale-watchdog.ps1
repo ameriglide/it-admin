@@ -5,14 +5,13 @@
 [CmdletBinding()]
 param(
     [Parameter(Mandatory)][ValidateSet('sage-amg','sage-iai','sage-server')][string]$Server,
-    [string]$BetterStackApiToken = $env:BETTERSTACK_API_TOKEN,
-    [int]$BetterStackTeamId = 540247,
+    [string]$BetterStackApiToken = $env:BETTERSTACK_UPTIME_TOKEN,
     [int]$PolicyId = 114897,
     [string]$VectorSourceToken,
     [switch]$SkipVector
 )
 $ErrorActionPreference = 'Stop'
-$Script:Revision = "647db87"
+$Script:Revision = "2ee6465"
 
 if (-not $BetterStackApiToken) { throw "BetterStack API token required (-BetterStackApiToken or BETTERSTACK_API_TOKEN)." }
 
@@ -43,10 +42,10 @@ if ($existing) {
         Write-Warning "Reusing heartbeat '$hbName', but failed to set policy $PolicyId : $($_.Exception.Message)"
     }
 } else {
-    # The API token spans multiple Better Stack teams, so create calls must name
-    # the team explicitly or the API returns 422. policy_id routes incidents
-    # through the AmeriGlide escalation policy, matching the zombie detector (AG-25).
-    $body = @{ name = $hbName; period = 300; grace = 900; better_stack_team_id = $BetterStackTeamId; policy_id = $PolicyId } | ConvertTo-Json
+    # Token is team-scoped, so do NOT pass a team id (the API rejects it).
+    # policy_id routes the heartbeat through the AmeriGlide escalation policy,
+    # matching the zombie detector (AG-25).
+    $body = @{ name = $hbName; period = 300; grace = 900; policy_id = $PolicyId } | ConvertTo-Json
     $created = Invoke-RestMethod -Uri 'https://uptime.betterstack.com/api/v2/heartbeats' -Headers $headers -Method Post -Body $body -ContentType 'application/json'
     $hbUrl = $created.data.attributes.url
     Write-Host "Created heartbeat '$hbName' (policy $PolicyId)." -ForegroundColor Green
