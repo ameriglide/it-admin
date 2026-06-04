@@ -78,7 +78,9 @@ param(
     [string[]]$Only = @(),
     [string]$Domain = "ameriglide.com",
     [string]$Brand = "AmeriGlide",
-    [string]$MarketingUrl = "https://www.ameriglide.com"
+    [string]$MarketingUrl = "https://www.ameriglide.com",
+    [string]$HeadscaleUrl,
+    [string[]]$Anchors = @()
 )
 
 $BrandLower = $Brand.ToLower()
@@ -105,7 +107,7 @@ if (-not $TailscaleAuthKey) {
 $ErrorActionPreference = "Stop"
 $ProgressPreference = "SilentlyContinue"
 # Stamped by pre-commit hook -- do not edit manually
-$Script:Revision = "2ad0883"
+$Script:Revision = "d253733"
 
 Write-Host "setup-workstation.ps1 rev $Script:Revision" -ForegroundColor DarkGray
 
@@ -221,7 +223,8 @@ if ($tsCmd) {
         Stop-Service tailscale -Force -ErrorAction SilentlyContinue
         Start-Sleep 2
     }
-    & $tsCmd up --login-server https://headscale.mage.net --auth-key $TailscaleAuthKey --unattended --timeout 30s
+    if (-not $HeadscaleUrl) { throw "HeadscaleUrl required to join Tailscale (-HeadscaleUrl)." }
+    & $tsCmd up --login-server $HeadscaleUrl --auth-key $TailscaleAuthKey --unattended --timeout 30s
     if ($LASTEXITCODE -eq 0) {
         Write-Host "  Joined Tailscale network." -ForegroundColor Green
     } else {
@@ -248,9 +251,10 @@ try {
     $wdBase = Join-Path $env:ProgramData 'ag-admin'
     New-Item -ItemType Directory -Path $wdBase -Force | Out-Null
 
+    if (-not $Anchors -or $Anchors.Count -eq 0) { Write-Warning "  No -Anchors supplied; watchdog tailnet probe will be ineffective." }
     $wdConfig = [ordered]@{
         heartbeatUrl                     = $null
-        anchors                          = @('100.64.0.4','100.64.0.11')
+        anchors                          = $Anchors
         intervalMinutes                  = 5
         minRestartGapMinutes             = 10
         maxRestartsPerHour               = 3

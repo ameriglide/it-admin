@@ -10,3 +10,6 @@ service-account.json
 # These bundle the env file and Google service-account key - never commit them.
 *.tbz2
 *.tar.bz2
+
+# Contains internal tailnet FQDN; generate locally, do not commit.
+scripts/*.rdp

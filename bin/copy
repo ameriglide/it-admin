@@ -47,7 +47,7 @@ install_apps() {
   fi
   local zuser="${ZOIPER_USERNAME:-}"
   local zpass="${ZOIPER_PASSWORD:-}"
-  local cmd="Set-ExecutionPolicy Bypass -Scope Process -Force; irm https://raw.githubusercontent.com/ameriglide/it-admin/main/scripts/setup-workstation.ps1 -OutFile \$env:TEMP\\setup-workstation.ps1; & \$env:TEMP\\setup-workstation.ps1 -Domain ${DOMAIN} -Brand \"${BRAND}\" -MarketingUrl \"${MARKETING_URL}\" -TailscaleAuthKey \"$key\""
+  local cmd="Set-ExecutionPolicy Bypass -Scope Process -Force; irm https://raw.githubusercontent.com/ameriglide/it-admin/main/scripts/setup-workstation.ps1 -OutFile \$env:TEMP\\setup-workstation.ps1; & \$env:TEMP\\setup-workstation.ps1 -Domain ${DOMAIN} -Brand \"${BRAND}\" -MarketingUrl \"${MARKETING_URL}\" -TailscaleAuthKey \"$key\" -HeadscaleUrl \"${HEADSCALE_URL:-}\" -Anchors ${TAILNET_ANCHORS_WORKSTATION:-}"
   if [[ -n "$zuser" && -n "$zpass" ]]; then
     cmd="$cmd -ZoiperUsername \"$zuser\" -ZoiperPassword \"$zpass\""
   else
@@ -135,7 +135,7 @@ sage_amg_onboard() {
   # Escape single-quotes for safe embedding inside PS '...' literal.
   local pass_escaped="${pass//\'/\'\'}"
 
-  echo "Set-ExecutionPolicy Bypass -Scope Process -Force; irm https://raw.githubusercontent.com/ameriglide/it-admin/main/scripts/onboard-sage-amg-user.ps1 -OutFile \$env:TEMP\\onboard-sage-amg-user.ps1; & \$env:TEMP\\onboard-sage-amg-user.ps1 -SamName ${user} -Password '${pass_escaped}'"
+  echo "Set-ExecutionPolicy Bypass -Scope Process -Force; irm https://raw.githubusercontent.com/ameriglide/it-admin/main/scripts/onboard-sage-amg-user.ps1 -OutFile \$env:TEMP\\onboard-sage-amg-user.ps1; & \$env:TEMP\\onboard-sage-amg-user.ps1 -SamName ${user} -Password '${pass_escaped}' -HeadscaleUrl \"${HEADSCALE_URL:-}\""
 }
 
 install_tailscale() {
@@ -144,7 +144,7 @@ install_tailscale() {
     echo >&2 "  ⚠  TAILSCALE_AUTH_KEY not set in .env — using placeholder"
     key="<paste-key-here>"
   fi
-  echo "Set-ExecutionPolicy Bypass -Scope Process -Force; irm https://raw.githubusercontent.com/ameriglide/it-admin/main/scripts/setup-workstation.ps1 -OutFile \$env:TEMP\\setup-workstation.ps1; & \$env:TEMP\\setup-workstation.ps1 -TailscaleAuthKey \"$key\" -Only tailscale"
+  echo "Set-ExecutionPolicy Bypass -Scope Process -Force; irm https://raw.githubusercontent.com/ameriglide/it-admin/main/scripts/setup-workstation.ps1 -OutFile \$env:TEMP\\setup-workstation.ps1; & \$env:TEMP\\setup-workstation.ps1 -TailscaleAuthKey \"$key\" -HeadscaleUrl \"${HEADSCALE_URL:-}\" -Only tailscale"
 }
 
 tailscale_key() {
@@ -153,7 +153,11 @@ tailscale_key() {
     echo >&2 "  ⚠  TAILSCALE_AUTH_KEY not set in .env"
     return 1
   fi
-  echo "tailscale up --login-server https://headscale.mage.net --auth-key $key --unattended --timeout 30s"
+  if [[ -z "${HEADSCALE_URL:-}" ]]; then
+    echo >&2 "  ⚠  HEADSCALE_URL not set in .env"
+    return 1
+  fi
+  echo "tailscale up --login-server ${HEADSCALE_URL} --auth-key $key --unattended --timeout 30s"
 }
 
 new_tailscale_key() {
@@ -185,6 +189,10 @@ new_tailscale_key() {
 
 # Map a server name to its VECTOR_SOURCE_TOKEN_<HOST> .env variable name.
 _vector_token_var() { echo "VECTOR_SOURCE_TOKEN_$(printf '%s' "$1" | tr 'a-z-' 'A-Z_')"; }
+# Map a server name to its TAILNET_ANCHORS_<HOST> .env variable name.
+_anchors_var() { echo "TAILNET_ANCHORS_$(printf '%s' "$1" | tr 'a-z-' 'A-Z_')"; }
+# Space-separated server list from .env (topology kept out of this public repo).
+_servers() { echo "${SERVERS_MONITORED:-}"; }
 
 # Create (or reuse) the Better Stack telemetry source that Vector ships
 # host_metrics to, and save its ingest token to .env. Needs the TELEMETRY API
@@ -196,7 +204,9 @@ provision_vector_source() {
     return 1
   fi
   local server
-  server=$(gum choose sage-amg sage-iai sage-server --header "Provision Better Stack Vector source for which server?" </dev/tty) || return 1
+  if [[ -z "$(_servers)" ]]; then echo >&2 "  ⚠  SERVERS_MONITORED not set in .env"; return 1; fi
+  # shellcheck disable=SC2046  # intentional word-split of the space-separated server list
+  server=$(gum choose $(_servers) --header "Provision Better Stack Vector source for which server?" </dev/tty) || return 1
   [[ -z "$server" ]] && return 1
   local name="$server (Vector)"
 
@@ -234,7 +244,9 @@ provision_vector_source() {
 # is present). Uptime token is required; Vector token is optional.
 install_server_monitoring() {
   local server
-  server=$(gum choose sage-amg sage-iai sage-server --header "Install watchdog + heartbeat (+ Vector) on which server?" </dev/tty) || return 1
+  if [[ -z "$(_servers)" ]]; then echo >&2 "  ⚠  SERVERS_MONITORED not set in .env"; return 1; fi
+  # shellcheck disable=SC2046  # intentional word-split of the space-separated server list
+  server=$(gum choose $(_servers) --header "Install watchdog + heartbeat (+ Vector) on which server?" </dev/tty) || return 1
   [[ -z "$server" ]] && return 1
 
   local up="${BETTERSTACK_UPTIME_TOKEN:-}"
@@ -243,8 +255,11 @@ install_server_monitoring() {
     up="<paste-uptime-token-here>"
   fi
 
+  local avar anchors; avar=$(_anchors_var "$server"); anchors="${!avar:-}"
+  if [[ -z "$anchors" ]]; then echo >&2 "  ⚠  $avar not set in .env — cannot supply watchdog anchors"; return 1; fi
+
   local var vtok; var=$(_vector_token_var "$server"); vtok="${!var:-}"
-  local cmd="Set-ExecutionPolicy Bypass -Scope Process -Force; irm https://raw.githubusercontent.com/ameriglide/it-admin/main/scripts/install-tailscale-watchdog.ps1 -OutFile \$env:TEMP\\install-tailscale-watchdog.ps1; & \$env:TEMP\\install-tailscale-watchdog.ps1 -Server ${server} -BetterStackApiToken \"$up\""
+  local cmd="Set-ExecutionPolicy Bypass -Scope Process -Force; irm https://raw.githubusercontent.com/ameriglide/it-admin/main/scripts/install-tailscale-watchdog.ps1 -OutFile \$env:TEMP\\install-tailscale-watchdog.ps1; & \$env:TEMP\\install-tailscale-watchdog.ps1 -Server ${server} -Anchors ${anchors} -BetterStackApiToken \"$up\""
   if [[ -n "$vtok" ]]; then
     cmd="$cmd -VectorSourceToken \"$vtok\""
   else

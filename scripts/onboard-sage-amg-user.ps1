@@ -45,6 +45,7 @@ param(
     [Parameter(Mandatory)][string]$SamName,
     [Parameter(Mandatory)][string]$Password,
     [string]$Email,
+    [string]$HeadscaleUrl,
     [switch]$Force
 )
 
@@ -89,6 +90,9 @@ Write-Host "  Host : sage-amg"
 Write-Host "  User : $SamName"
 Write-Host "  Pass : (the same password you set on their Google account)"
 Write-Host ""
-Write-Host "Optional - on their workstation, to skip mstsc's prompt:"
-Write-Host "  cmdkey /generic:TERMSRV/sage-amg.nodes.headscale.mage.net /user:$SamName /pass:<password>"
+if ($HeadscaleUrl) {
+    $rdpFqdn = "sage-amg.nodes.$(([uri]$HeadscaleUrl).Host)"
+    Write-Host "Optional - on their workstation, to skip mstsc's prompt:"
+    Write-Host "  cmdkey /generic:TERMSRV/$rdpFqdn /user:$SamName /pass:<password>"
+}
 Write-Host ""
