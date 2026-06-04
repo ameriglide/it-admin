@@ -179,6 +179,82 @@ new_tailscale_key() {
 }
 
 # ---------------------------------------------------------------------------
+# Server monitoring (sage-* always-on servers): Tailscale watchdog + Better
+# Stack heartbeat (+ Vector host_metrics).  See docs/runbooks/server-monitoring.md
+# ---------------------------------------------------------------------------
+
+# Map a server name to its VECTOR_SOURCE_TOKEN_<HOST> .env variable name.
+_vector_token_var() { echo "VECTOR_SOURCE_TOKEN_$(printf '%s' "$1" | tr 'a-z-' 'A-Z_')"; }
+
+# Create (or reuse) the Better Stack telemetry source that Vector ships
+# host_metrics to, and save its ingest token to .env. Needs the TELEMETRY API
+# token (distinct from the uptime token used for heartbeats/incidents).
+provision_vector_source() {
+  local tel="${BETTERSTACK_TELEMETRY_TOKEN:-}"
+  if [[ -z "$tel" ]]; then
+    echo >&2 "  ⚠  BETTERSTACK_TELEMETRY_TOKEN not set in .env (Better Stack → Telemetry → Settings → API tokens)"
+    return 1
+  fi
+  local server
+  server=$(gum choose sage-amg sage-iai sage-server --header "Provision Better Stack Vector source for which server?" </dev/tty) || return 1
+  [[ -z "$server" ]] && return 1
+  local name="$server (Vector)"
+
+  echo >&2 "  Looking up existing source '$name'..."
+  local list token
+  list=$(curl -fsS -H "Authorization: Bearer $tel" "https://telemetry.betterstack.com/api/v1/sources?per_page=250" 2>/dev/null) || {
+    echo >&2 "  ⚠  Could not list telemetry sources (check BETTERSTACK_TELEMETRY_TOKEN)"; return 1; }
+  token=$(printf '%s' "$list" | jq -r --arg n "$name" '.data[]? | select(.attributes.name==$n) | .attributes.token' | head -1)
+
+  if [[ -n "$token" && "$token" != "null" ]]; then
+    echo >&2 "  ✓ Reusing existing source '$name'"
+  else
+    echo >&2 "  Creating source '$name' (vector, us_east, 90d logs+metrics)..."
+    local resp
+    resp=$(curl -fsS -X POST "https://telemetry.betterstack.com/api/v1/sources" \
+      -H "Authorization: Bearer $tel" -H 'Content-Type: application/json' \
+      -d "$(jq -nc --arg n "$name" '{name:$n,platform:"vector",data_region:"us_east",logs_retention:90,metrics_retention:90}')") || {
+        echo >&2 "  ⚠  Source creation failed"; return 1; }
+    token=$(printf '%s' "$resp" | jq -r '(.data.attributes.token // .attributes.token) // empty')
+  fi
+  if [[ -z "$token" ]]; then echo >&2 "  ⚠  Could not obtain source token from the API response"; return 1; fi
+
+  local var; var=$(_vector_token_var "$server")
+  if grep -q "^${var}=" "$SCRIPT_DIR/.env" 2>/dev/null; then
+    sed -i '' "s|^${var}=.*|${var}=${token}|" "$SCRIPT_DIR/.env"
+  else
+    echo "${var}=${token}" >> "$SCRIPT_DIR/.env"
+  fi
+  echo >&2 "  Saved $var to .env"
+  echo "$token"
+}
+
+# Emit the remote PowerShell one-liner that installs the watchdog + heartbeat
+# (and bundles Vector host_metrics on sage-iai/sage-server when a source token
+# is present). Uptime token is required; Vector token is optional.
+install_server_monitoring() {
+  local server
+  server=$(gum choose sage-amg sage-iai sage-server --header "Install watchdog + heartbeat (+ Vector) on which server?" </dev/tty) || return 1
+  [[ -z "$server" ]] && return 1
+
+  local up="${BETTERSTACK_UPTIME_TOKEN:-}"
+  if [[ -z "$up" ]]; then
+    echo >&2 "  ⚠  BETTERSTACK_UPTIME_TOKEN not set in .env — using placeholder"
+    up="<paste-uptime-token-here>"
+  fi
+
+  local var vtok; var=$(_vector_token_var "$server"); vtok="${!var:-}"
+  local cmd="Set-ExecutionPolicy Bypass -Scope Process -Force; irm https://raw.githubusercontent.com/ameriglide/it-admin/main/scripts/install-tailscale-watchdog.ps1 -OutFile \$env:TEMP\\install-tailscale-watchdog.ps1; & \$env:TEMP\\install-tailscale-watchdog.ps1 -Server ${server} -BetterStackApiToken \"$up\""
+  if [[ -n "$vtok" ]]; then
+    cmd="$cmd -VectorSourceToken \"$vtok\""
+  else
+    cmd="$cmd -SkipVector"
+    echo >&2 "  ⚠  $var not set — emitting -SkipVector (run 'provision Vector source' first for host metrics)"
+  fi
+  echo "$cmd"
+}
+
+# ---------------------------------------------------------------------------
 # Menu
 # ---------------------------------------------------------------------------
 
@@ -191,6 +267,8 @@ LABELS=(
   "Tailscale — join network (from .env)"
   "Generate new Tailscale key (SSH → headscale, saves to .env)..."
   "sage-amg — onboard new user..."
+  "Server monitoring — install watchdog + heartbeat (+ Vector) on a sage-* server..."
+  "Server monitoring — provision Better Stack Vector source (saves token to .env)..."
   "JumpCloud to GCPW — phase 1..."
   "JumpCloud to GCPW — phase 2"
 )
@@ -204,6 +282,8 @@ dispatch() {
     "Tailscale — install + join (only)")        install_tailscale ;;
     "Zoiper — install + configure...")             zoiper_setup ;;
     "sage-amg — onboard new user...")           sage_amg_onboard ;;
+    "Server monitoring — install watchdog + heartbeat (+ Vector) on a sage-* server...") install_server_monitoring ;;
+    "Server monitoring — provision Better Stack Vector source (saves token to .env)...") provision_vector_source ;;
     "JumpCloud to GCPW — phase 1...")              migration_phase1 ;;
     "JumpCloud to GCPW — phase 2")               migration_phase2 ;;
     "Tailscale — join network (from .env)")            tailscale_key ;;
