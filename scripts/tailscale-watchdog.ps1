@@ -5,7 +5,7 @@
 param([switch]$DryRun)
 
 $ErrorActionPreference = 'Stop'
-$Script:Revision = "d253733"
+$Script:Revision = "647db87"
 
 $BaseDir    = Join-Path $env:ProgramData 'ag-admin'
 $CorePath   = Join-Path $BaseDir 'watchdog-core.ps1'
