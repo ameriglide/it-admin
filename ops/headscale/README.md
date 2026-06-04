@@ -27,6 +27,7 @@ sudo cp headscale-zombie-detector.service headscale-zombie-detector.timer /etc/s
 sudo tee /etc/headscale-zombie-detector.env >/dev/null <<'EOF'
 BETTERSTACK_API_TOKEN=...
 BETTERSTACK_TEAM_ID=540247
+BETTERSTACK_POLICY_ID=114897
 REQUESTER_EMAIL=it@ameriglide.com
 HEADSCALE_CONTAINER=headscale
 FAILS_THRESHOLD=2
@@ -67,4 +68,5 @@ heartbeat's job, not this detector's); `online=true` + reachable -> reset /
 resolve; `online=true` + unreachable for `FAILS_THRESHOLD` (2) consecutive runs
 -> open incident. Safety valve: if some monitored nodes are online but **none**
 are reachable, the run assumes the host's own tailscale/DERP path is broken and
-does nothing.
+does nothing. Incidents are routed through Better Stack escalation policy 114897
+(set via BETTERSTACK_POLICY_ID); leave it unset to fall back to the team default on-call.
