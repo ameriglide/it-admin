@@ -11,12 +11,25 @@ param(
     [switch]$SkipVector
 )
 $ErrorActionPreference = 'Stop'
-$Script:Revision = "2ee6465"
+$Script:Revision = "27b82bd"
 
-if (-not $BetterStackApiToken) { throw "BetterStack API token required (-BetterStackApiToken or BETTERSTACK_API_TOKEN)." }
+if (-not $BetterStackApiToken) { throw "BetterStack API token required (-BetterStackApiToken or BETTERSTACK_UPTIME_TOKEN)." }
 
 $BaseDir = Join-Path $env:ProgramData 'ag-admin'
 New-Item -ItemType Directory -Path $BaseDir -Force | Out-Null
+
+# When run standalone (irm | run from $env:TEMP), only this script is present in
+# $PSScriptRoot; fetch the sibling scripts it needs from the public repo. When
+# run from a cloned scripts/ dir, the local copies are used as-is.
+$RawBase = 'https://raw.githubusercontent.com/ameriglide/it-admin/main/scripts'
+function Get-RepoScript {
+    param([Parameter(Mandatory)][string]$Name)
+    $local = Join-Path $PSScriptRoot $Name
+    if (Test-Path $local) { return $local }
+    $dest = Join-Path $env:TEMP $Name
+    Invoke-WebRequest -Uri "$RawBase/$Name" -OutFile $dest -UseBasicParsing
+    return $dest
+}
 
 $anchorMap = @{
     'sage-amg'    = @('100.64.0.4','100.64.0.11','100.64.0.10')
@@ -63,18 +76,18 @@ $config = [ordered]@{
 $config | ConvertTo-Json | Set-Content -Path (Join-Path $BaseDir 'tailscale-watchdog.config.json')
 
 # 3. Copy scripts.
-Copy-Item -Path (Join-Path $PSScriptRoot 'watchdog-core.ps1')      -Destination $BaseDir -Force
-Copy-Item -Path (Join-Path $PSScriptRoot 'tailscale-watchdog.ps1') -Destination $BaseDir -Force
+Copy-Item -Path (Get-RepoScript 'watchdog-core.ps1')      -Destination $BaseDir -Force
+Copy-Item -Path (Get-RepoScript 'tailscale-watchdog.ps1') -Destination $BaseDir -Force
 
 # 4. Register the scheduled task.
-& (Join-Path $PSScriptRoot 'register-watchdog-task.ps1')
+& (Get-RepoScript 'register-watchdog-task.ps1')
 
 # 5. Bundle Vector host_metrics for the two boxes not yet onboarded (AMG-403).
 if (-not $SkipVector -and $Server -in @('sage-iai','sage-server')) {
     if (-not $VectorSourceToken) {
         Write-Warning "VectorSourceToken not supplied; skipping Vector host_metrics (AMG-403). Re-run with -VectorSourceToken to onboard metrics."
     } else {
-        & (Join-Path $PSScriptRoot 'install-vector-host-metrics.ps1') -SourceToken $VectorSourceToken
+        & (Get-RepoScript 'install-vector-host-metrics.ps1') -SourceToken $VectorSourceToken
     }
 }
 
