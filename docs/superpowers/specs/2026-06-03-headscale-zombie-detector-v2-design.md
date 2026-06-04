@@ -139,7 +139,7 @@ Nodes no longer in `MONITORED_NODES` have any open incident resolved and are pru
   tailscale-router-b asterisk-pbx asterisk-pbx-nyc3 amg-blog youtrack"`.
 - **Add** `FAILS_THRESHOLD=2`.
 - **Remove** `STALE_SECONDS`.
-- **Keep** `BETTERSTACK_API_TOKEN`, `BETTERSTACK_TEAM_ID=540247`, `REQUESTER_EMAIL`,
+- **Keep** `BETTERSTACK_API_TOKEN` (team-scoped uptime token; no team id needed), `REQUESTER_EMAIL`,
   `HEADSCALE_CONTAINER=headscale`.
 
 ## Out of scope

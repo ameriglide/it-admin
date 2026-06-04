@@ -54,8 +54,8 @@ bs_create() {
   desc="Node $node is online in Headscale but unreachable via tailscale ping for $checks consecutive checks. Likely a half-closed Tailscale control connection. Restart the Tailscale service on $node or check the host."
   resp=$(curl -sf -X POST https://uptime.betterstack.com/api/v2/incidents \
     -H "Authorization: Bearer $BETTERSTACK_API_TOKEN" -H 'Content-Type: application/json' \
-    -d "$(jq -nc --arg s "Tailnet zombie: $node" --arg d "$desc" --arg e "$REQUESTER_EMAIL" --argjson t "$BETTERSTACK_TEAM_ID" --arg p "$BETTERSTACK_POLICY_ID" \
-        '{summary:$s,description:$d,requester_email:$e,call:false,sms:false,email:true,better_stack_team_id:$t}
+    -d "$(jq -nc --arg s "Tailnet zombie: $node" --arg d "$desc" --arg e "$REQUESTER_EMAIL" --arg p "$BETTERSTACK_POLICY_ID" \
+        '{summary:$s,description:$d,requester_email:$e,call:false,sms:false,email:true}
          + (if $p == "" then {} else {policy_id:$p} end)')") \
     || { echo ""; return; }
   echo "$resp" | jq -r '.data.id // empty'
@@ -74,7 +74,7 @@ main() {
   STATE_FILE="${STATE_FILE:-/var/lib/headscale-zombie-detector/state.json}"
   THRESHOLD="${FAILS_THRESHOLD:-2}"
   REQUESTER_EMAIL="${REQUESTER_EMAIL:-it@ameriglide.com}"
-  BETTERSTACK_TEAM_ID="${BETTERSTACK_TEAM_ID:-540247}"
+  # Token is team-scoped, so incident creates must NOT pass a team id.
   BETTERSTACK_POLICY_ID="${BETTERSTACK_POLICY_ID:-}"
   DRY_RUN="${DRY_RUN:-0}"
   : "${MONITORED_NODES:?MONITORED_NODES required (space-separated given_names)}"
