@@ -9,11 +9,16 @@
 set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 
-# Load .env if present
-if [[ -f "$SCRIPT_DIR/.env" ]]; then
-  # shellcheck disable=SC2046
-  export $(grep -v '^#' "$SCRIPT_DIR/.env" | xargs)
-fi
+# Load .env (set -a auto-exports). .env is sourced, so every value must be
+# quoted (e.g. KEY="value with spaces") to be safe with spaces/special chars.
+load_env() {
+  [[ -f "$SCRIPT_DIR/.env" ]] || return 0
+  set -a
+  # shellcheck disable=SC1091
+  . "$SCRIPT_DIR/.env"
+  set +a
+}
+load_env
 
 # Workspace domain — used to build user@<domain> emails in PS one-liners.
 : "${DOMAIN:=ameriglide.com}"
@@ -316,11 +321,8 @@ echo
 select choice in "${LABELS[@]}"; do
   [[ -z "$choice" ]] && { [[ "$REPLY" == q ]] && break; continue; }
 
-  # Re-source .env each iteration so option-9 (key rotation) is visible to option 8.
-  if [[ -f "$SCRIPT_DIR/.env" ]]; then
-    # shellcheck disable=SC2046
-    export $(grep -v '^#' "$SCRIPT_DIR/.env" | xargs)
-  fi
+  # Re-load .env each iteration so option-9 (key rotation) is visible to option 8.
+  load_env
 
   payload=$(dispatch "$choice") || { echo; continue; }
 
