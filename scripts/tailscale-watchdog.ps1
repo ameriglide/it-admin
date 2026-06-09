@@ -5,7 +5,6 @@
 param([switch]$DryRun)
 
 $ErrorActionPreference = 'Stop'
-$Script:Revision = "32a6198"
 
 $BaseDir    = Join-Path $env:ProgramData 'ag-admin'
 $CorePath   = Join-Path $BaseDir 'watchdog-core.ps1'
@@ -14,6 +13,9 @@ $StatePath  = Join-Path $BaseDir 'tailscale-watchdog.state.json'
 $LogPath    = Join-Path $BaseDir 'tailscale-watchdog.log'
 
 . $CorePath
+# Set AFTER dot-sourcing: watchdog-core.ps1 also assigns $Script:Revision, so
+# stamping it before the dot-source gets clobbered to "" (logs showed empty "[]").
+$Script:Revision = "70a11c5"
 
 function Write-WatchdogLog {
     param([string]$Message)
@@ -54,12 +56,28 @@ function Save-WatchdogState {
     $State | ConvertTo-Json -Depth 4 | Set-Content -Path $StatePath
 }
 
+function Test-TcpConnect {
+    # Hard-bounded TCP connect. Test-NetConnection has no usable timeout and can
+    # hang for minutes (or longer, behind a wedged WinHTTP/WPAD path) on a broken
+    # stack; BeginConnect + WaitOne caps the wait so a cycle can never block
+    # indefinitely while probing connectivity. (AG-47)
+    param([string]$ComputerName, [int]$Port, [int]$TimeoutMs = 3000)
+    $client = New-Object System.Net.Sockets.TcpClient
+    try {
+        $iar = $client.BeginConnect($ComputerName, $Port, $null, $null)
+        if (-not $iar.AsyncWaitHandle.WaitOne($TimeoutMs)) { return $false }
+        $client.EndConnect($iar)   # throws if the connection actually failed
+        return $true
+    } catch {
+        return $false
+    } finally {
+        $client.Close()
+    }
+}
+
 function Test-OutboundConnectivity {
     foreach ($t in @(@{H='1.1.1.1';P=443}, @{H='8.8.8.8';P=443})) {
-        try {
-            $r = Test-NetConnection -ComputerName $t.H -Port $t.P -WarningAction SilentlyContinue
-            if ($r.TcpTestSucceeded) { return $true }
-        } catch {}
+        if (Test-TcpConnect -ComputerName $t.H -Port $t.P -TimeoutMs 3000) { return $true }
     }
     return $false
 }

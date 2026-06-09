@@ -12,7 +12,7 @@ param(
     [switch]$SkipVector
 )
 $ErrorActionPreference = 'Stop'
-$Script:Revision = "32a6198"
+$Script:Revision = "70a11c5"
 
 if (-not $BetterStackApiToken) { throw "BetterStack API token required (-BetterStackApiToken or BETTERSTACK_UPTIME_TOKEN)." }
 
@@ -76,7 +76,12 @@ Copy-Item -Path (Get-RepoScript 'tailscale-watchdog.ps1') -Destination $BaseDir 
 # 4. Register the scheduled task.
 & (Get-RepoScript 'register-watchdog-task.ps1')
 
-# 5. Bundle Vector host_metrics when a source token is supplied (AMG-403).
+# 5. Disable WPAD proxy auto-detect (AG-48). tailscaled runs as SYSTEM and these
+# servers use no proxy; leaving WPAD on lets a brief outbound hiccup wedge
+# tailscaled for hours via a hung WinHTTP GetProxyForURL. Idempotent.
+& (Get-RepoScript 'disable-wpad-proxy.ps1')
+
+# 6. Bundle Vector host_metrics when a source token is supplied (AMG-403).
 # install-vector-host-metrics.ps1 is idempotent (skips the binary if already
 # present), so passing a token for an already-onboarded box is safe.
 if (-not $SkipVector -and $VectorSourceToken) {

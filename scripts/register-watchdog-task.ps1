@@ -2,7 +2,7 @@
 # Registers (idempotently) the AG Tailscale Watchdog scheduled task: SYSTEM,
 # every 5 minutes, plus at startup. ASCII only.
 $ErrorActionPreference = 'Stop'
-$Script:Revision = ""
+$Script:Revision = "ebab6f6"
 
 $taskName   = 'AG Tailscale Watchdog'
 $scriptPath = Join-Path $env:ProgramData 'ag-admin\tailscale-watchdog.ps1'
@@ -15,8 +15,12 @@ $triggerInterval = New-ScheduledTaskTrigger -Once -At (Get-Date) `
 $triggerStartup  = New-ScheduledTaskTrigger -AtStartup
 
 $principal = New-ScheduledTaskPrincipal -UserId 'SYSTEM' -LogonType ServiceAccount -RunLevel Highest
+# ExecutionTimeLimit must be SHORTER than the 5-minute repetition interval: if a
+# cycle hangs (e.g. on a wedged network call) Task Scheduler force-kills it
+# before the next trigger fires, so MultipleInstances=IgnoreNew can no longer
+# let one stuck instance silence the watchdog for the 72h default. (AG-47)
 $settings  = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries `
-    -StartWhenAvailable -MultipleInstances IgnoreNew
+    -StartWhenAvailable -MultipleInstances IgnoreNew -ExecutionTimeLimit (New-TimeSpan -Minutes 4)
 
 Unregister-ScheduledTask -TaskName $taskName -Confirm:$false -ErrorAction SilentlyContinue
 Register-ScheduledTask -TaskName $taskName -Action $action `
