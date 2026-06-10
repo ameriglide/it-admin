@@ -9,12 +9,15 @@
 # cancels. These servers use no proxy, so WPAD is pure liability.
 #
 # This clears the WPAD auto-detect bit in every relevant WinINET connection
-# profile and disables the WinHTTP auto-proxy service. Idempotent. ASCII only.
+# profile. It deliberately does NOT disable WinHttpAutoProxySvc -- that service
+# is a dependency of iphlpsvc/Tailscale on these boxes, and disabling it blocks
+# the whole stack from starting on the next boot (see repair-tailscale-service-
+# deps.ps1). Idempotent. ASCII only.
 [CmdletBinding()]
 param([switch]$WhatIfOnly)
 
 $ErrorActionPreference = 'Stop'
-$Script:Revision = ""
+$Script:Revision = "a2d2043"
 
 # WinINET stores per-profile proxy config as the REG_BINARY
 # DefaultConnectionSettings. Byte 8 is a flags bitmask:
@@ -61,20 +64,12 @@ foreach ($t in ($targets | Select-Object -Unique)) {
 }
 if ($changed -eq 0) { Write-Host "  WPAD auto-detect already off (no WinINET changes)." -ForegroundColor DarkGray }
 
-# Belt and suspenders: with the WinHTTP auto-proxy service disabled, any residual
-# autoproxy call returns "direct" fast instead of hanging.
-try {
-    $svc = Get-Service -Name WinHttpAutoProxySvc -ErrorAction Stop
-    if (-not $WhatIfOnly) {
-        Set-Service -Name WinHttpAutoProxySvc -StartupType Disabled
-        if ($svc.Status -ne 'Stopped') { Stop-Service -Name WinHttpAutoProxySvc -Force -ErrorAction SilentlyContinue }
-        Write-Host "  WinHttpAutoProxySvc set to Disabled." -ForegroundColor Green
-    } else {
-        Write-Host "  Would set WinHttpAutoProxySvc to Disabled (currently $($svc.StartType)/$($svc.Status))." -ForegroundColor Green
-    }
-} catch {
-    Write-Warning "  Could not disable WinHttpAutoProxySvc: $($_.Exception.Message)"
-}
+# NOTE: do NOT disable WinHttpAutoProxySvc here. It is a service dependency of
+# iphlpsvc (and therefore Tailscale) on these servers, so disabling it stops the
+# whole stack from starting on the next boot (AG-46 follow-up, 2026-06-10).
+# Clearing the WPAD auto-detect bit above is enough to stop the tailscaled
+# GetProxyForURL hang; the spurious dependency itself is removed separately by
+# repair-tailscale-service-deps.ps1.
 
 if ($WhatIfOnly) { Write-Host "Preview only -- no changes made." -ForegroundColor DarkGray }
 else { Write-Host "WPAD proxy auto-detect disabled." -ForegroundColor Green }

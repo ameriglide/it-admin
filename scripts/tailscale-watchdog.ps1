@@ -15,7 +15,7 @@ $LogPath    = Join-Path $BaseDir 'tailscale-watchdog.log'
 . $CorePath
 # Set AFTER dot-sourcing: watchdog-core.ps1 also assigns $Script:Revision, so
 # stamping it before the dot-source gets clobbered to "" (logs showed empty "[]").
-$Script:Revision = "70a11c5"
+$Script:Revision = "a2d2043"
 
 function Write-WatchdogLog {
     param([string]$Message)
@@ -117,6 +117,18 @@ switch ($decision.Action) {
     }
     'restart' {
         Write-WatchdogLog "restarting Tailscale service"
+        # A reboot under a re-pushed WinHttpAutoProxySvc dependency leaves iphlpsvc
+        # (and thus Tailscale) unable to start. Re-sever the dependency and bring
+        # iphlpsvc up first so the watchdog can self-heal that case, not just a
+        # plain tunnel wedge. (AG-46 follow-up) Both steps are idempotent no-ops
+        # on a healthy box.
+        $repair = Join-Path $BaseDir 'repair-tailscale-service-deps.ps1'
+        if (Test-Path $repair) {
+            try { & $repair *> $null; Write-WatchdogLog "ensured service deps (no WinHttpAutoProxySvc)" }
+            catch { Write-WatchdogLog "dep repair failed: $($_.Exception.Message)" }
+        }
+        try { Start-Service -Name iphlpsvc -ErrorAction Stop }
+        catch { Write-WatchdogLog "iphlpsvc start: $($_.Exception.Message)" }
         try { Restart-Service -Name Tailscale -Force -ErrorAction Stop }
         catch { Write-WatchdogLog "restart failed: $($_.Exception.Message)" }
     }

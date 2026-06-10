@@ -12,7 +12,7 @@ param(
     [switch]$SkipVector
 )
 $ErrorActionPreference = 'Stop'
-$Script:Revision = "70a11c5"
+$Script:Revision = "a2d2043"
 
 if (-not $BetterStackApiToken) { throw "BetterStack API token required (-BetterStackApiToken or BETTERSTACK_UPTIME_TOKEN)." }
 
@@ -70,8 +70,9 @@ $config = [ordered]@{
 $config | ConvertTo-Json | Set-Content -Path (Join-Path $BaseDir 'tailscale-watchdog.config.json')
 
 # 3. Copy scripts.
-Copy-Item -Path (Get-RepoScript 'watchdog-core.ps1')      -Destination $BaseDir -Force
-Copy-Item -Path (Get-RepoScript 'tailscale-watchdog.ps1') -Destination $BaseDir -Force
+Copy-Item -Path (Get-RepoScript 'watchdog-core.ps1')                 -Destination $BaseDir -Force
+Copy-Item -Path (Get-RepoScript 'tailscale-watchdog.ps1')            -Destination $BaseDir -Force
+Copy-Item -Path (Get-RepoScript 'repair-tailscale-service-deps.ps1') -Destination $BaseDir -Force
 
 # 4. Register the scheduled task.
 & (Get-RepoScript 'register-watchdog-task.ps1')
@@ -81,7 +82,12 @@ Copy-Item -Path (Get-RepoScript 'tailscale-watchdog.ps1') -Destination $BaseDir 
 # tailscaled for hours via a hung WinHTTP GetProxyForURL. Idempotent.
 & (Get-RepoScript 'disable-wpad-proxy.ps1')
 
-# 6. Bundle Vector host_metrics when a source token is supplied (AMG-403).
+# 6. Sever the spurious WinHttpAutoProxySvc dependency so a reboot -- or a GPO/
+# baseline re-push -- can never wedge iphlpsvc + Tailscale (AG-46 follow-up).
+# Idempotent; the watchdog also re-applies this before any restart.
+& (Get-RepoScript 'repair-tailscale-service-deps.ps1')
+
+# 7. Bundle Vector host_metrics when a source token is supplied (AMG-403).
 # install-vector-host-metrics.ps1 is idempotent (skips the binary if already
 # present), so passing a token for an already-onboarded box is safe.
 if (-not $SkipVector -and $VectorSourceToken) {
