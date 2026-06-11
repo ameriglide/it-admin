@@ -194,32 +194,40 @@ new_tailscale_key() {
 
 # Map a server name to its VECTOR_SOURCE_TOKEN_<HOST> .env variable name.
 _vector_token_var() { echo "VECTOR_SOURCE_TOKEN_$(printf '%s' "$1" | tr 'a-z-' 'A-Z_')"; }
+# Map a server name to its VECTOR_SOURCE_INGEST_<HOST> .env variable name.
+_vector_ingest_var() { echo "VECTOR_SOURCE_INGEST_$(printf '%s' "$1" | tr 'a-z-' 'A-Z_')"; }
 # Map a server name to its TAILNET_ANCHORS_<HOST> .env variable name.
 _anchors_var() { echo "TAILNET_ANCHORS_$(printf '%s' "$1" | tr 'a-z-' 'A-Z_')"; }
-# Space-separated server list from .env (topology kept out of this public repo).
-_servers() { echo "${SERVERS_MONITORED:-}"; }
+# Space-separated server lists from .env (topology kept out of this public repo).
+_servers() { echo "${SERVERS_MONITORED:-}"; }              # Windows sage-* servers
+_linux_servers() { echo "${LINUX_SERVERS_MONITORED:-}"; }  # Linux droplets (native Vector)
 
-# Create (or reuse) the Better Stack telemetry source that Vector ships
-# host_metrics to, and save its ingest token to .env. Needs the TELEMETRY API
-# token (distinct from the uptime token used for heartbeats/incidents).
-provision_vector_source() {
+# Upsert KEY=VALUE in .env (replace in place or append).
+_env_set() {
+  local var="$1" val="$2"
+  if grep -q "^${var}=" "$SCRIPT_DIR/.env" 2>/dev/null; then
+    sed -i '' "s|^${var}=.*|${var}=${val}|" "$SCRIPT_DIR/.env"
+  else
+    echo "${var}=${val}" >> "$SCRIPT_DIR/.env"
+  fi
+}
+
+# Create (or reuse) the "<name>" vector telemetry source. Echoes "token<TAB>ingest_host"
+# on stdout; diagnostics go to stderr. Needs the TELEMETRY API token (distinct
+# from the uptime token used for heartbeats/incidents).
+_ensure_vector_source() {
+  local name="$1"
   local tel="${BETTERSTACK_TELEMETRY_TOKEN:-}"
   if [[ -z "$tel" ]]; then
     echo >&2 "  ⚠  BETTERSTACK_TELEMETRY_TOKEN not set in .env (Better Stack → Telemetry → Settings → API tokens)"
     return 1
   fi
-  local server
-  if [[ -z "$(_servers)" ]]; then echo >&2 "  ⚠  SERVERS_MONITORED not set in .env"; return 1; fi
-  # shellcheck disable=SC2046  # intentional word-split of the space-separated server list
-  server=$(gum choose $(_servers) --header "Provision Better Stack Vector source for which server?" </dev/tty) || return 1
-  [[ -z "$server" ]] && return 1
-  local name="$server (Vector)"
-
   echo >&2 "  Looking up existing source '$name'..."
-  local list token
+  local list token ingest
   list=$(curl -fsS -H "Authorization: Bearer $tel" "https://telemetry.betterstack.com/api/v1/sources?per_page=250" 2>/dev/null) || {
     echo >&2 "  ⚠  Could not list telemetry sources (check BETTERSTACK_TELEMETRY_TOKEN)"; return 1; }
   token=$(printf '%s' "$list" | jq -r --arg n "$name" '.data[]? | select(.attributes.name==$n) | .attributes.token' | head -1)
+  ingest=$(printf '%s' "$list" | jq -r --arg n "$name" '.data[]? | select(.attributes.name==$n) | .attributes.ingesting_host' | head -1)
 
   if [[ -n "$token" && "$token" != "null" ]]; then
     echo >&2 "  ✓ Reusing existing source '$name'"
@@ -231,17 +239,60 @@ provision_vector_source() {
       -d "$(jq -nc --arg n "$name" '{name:$n,platform:"vector",data_region:"us_east",logs_retention:90,metrics_retention:90}')") || {
         echo >&2 "  ⚠  Source creation failed"; return 1; }
     token=$(printf '%s' "$resp" | jq -r '(.data.attributes.token // .attributes.token) // empty')
+    ingest=$(printf '%s' "$resp" | jq -r '(.data.attributes.ingesting_host // .attributes.ingesting_host) // empty')
   fi
-  if [[ -z "$token" ]]; then echo >&2 "  ⚠  Could not obtain source token from the API response"; return 1; fi
+  if [[ -z "$token" || "$token" == "null" ]]; then echo >&2 "  ⚠  Could not obtain source token from the API response"; return 1; fi
+  printf '%s\t%s\n' "$token" "$ingest"
+}
 
+# Provision a Vector source for a Windows sage-* server and save its token to .env.
+provision_vector_source() {
+  local server
+  if [[ -z "$(_servers)" ]]; then echo >&2 "  ⚠  SERVERS_MONITORED not set in .env"; return 1; fi
+  # shellcheck disable=SC2046  # intentional word-split of the space-separated server list
+  server=$(gum choose $(_servers) --header "Provision Better Stack Vector source for which server?" </dev/tty) || return 1
+  [[ -z "$server" ]] && return 1
+
+  local out token; out=$(_ensure_vector_source "$server (Vector)") || return 1
+  token=${out%%$'\t'*}
   local var; var=$(_vector_token_var "$server")
-  if grep -q "^${var}=" "$SCRIPT_DIR/.env" 2>/dev/null; then
-    sed -i '' "s|^${var}=.*|${var}=${token}|" "$SCRIPT_DIR/.env"
-  else
-    echo "${var}=${token}" >> "$SCRIPT_DIR/.env"
-  fi
+  _env_set "$var" "$token"
   echo >&2 "  Saved $var to .env"
   echo "$token"
+}
+
+# Provision a Vector source for a Linux droplet and save BOTH its token and its
+# per-source ingest host to .env (the Linux installer needs the ingest host).
+provision_linux_vector_source() {
+  local server
+  if [[ -z "$(_linux_servers)" ]]; then echo >&2 "  ⚠  LINUX_SERVERS_MONITORED not set in .env"; return 1; fi
+  # shellcheck disable=SC2046  # intentional word-split of the space-separated server list
+  server=$(gum choose $(_linux_servers) --header "Provision Better Stack Vector source for which Linux host?" </dev/tty) || return 1
+  [[ -z "$server" ]] && return 1
+
+  local out token ingest; out=$(_ensure_vector_source "$server (Vector)") || return 1
+  token=${out%%$'\t'*}; ingest=${out#*$'\t'}
+  _env_set "$(_vector_token_var "$server")" "$token"
+  _env_set "$(_vector_ingest_var "$server")" "$ingest"
+  echo >&2 "  Saved $(_vector_token_var "$server") + $(_vector_ingest_var "$server") to .env"
+  echo "$token"
+}
+
+# Emit the remote bash one-liner that installs native Vector host_metrics on a
+# Linux droplet (no Docker, no eBPF -- see scripts/install-vector-host-metrics.sh).
+install_linux_host_metrics() {
+  local server
+  if [[ -z "$(_linux_servers)" ]]; then echo >&2 "  ⚠  LINUX_SERVERS_MONITORED not set in .env"; return 1; fi
+  # shellcheck disable=SC2046  # intentional word-split of the space-separated server list
+  server=$(gum choose $(_linux_servers) --header "Install Vector host metrics on which Linux host?" </dev/tty) || return 1
+  [[ -z "$server" ]] && return 1
+
+  local tvar ivar tok ingest; tvar=$(_vector_token_var "$server"); ivar=$(_vector_ingest_var "$server")
+  tok="${!tvar:-}"; ingest="${!ivar:-}"
+  if [[ -z "$tok" || -z "$ingest" ]]; then
+    echo >&2 "  ⚠  $tvar / $ivar not set — run 'provision Linux Vector source' first"; return 1
+  fi
+  echo "curl -fsSL https://raw.githubusercontent.com/ameriglide/it-admin/main/scripts/install-vector-host-metrics.sh | sudo bash -s -- --source-token \"$tok\" --ingest-host \"$ingest\""
 }
 
 # Emit the remote PowerShell one-liner that installs the watchdog + heartbeat
@@ -289,6 +340,8 @@ LABELS=(
   "sage-amg — onboard new user..."
   "Server monitoring — install watchdog + heartbeat (+ Vector) on a sage-* server..."
   "Server monitoring — provision Better Stack Vector source (saves token to .env)..."
+  "Server monitoring — provision Vector source for a Linux host (saves token + ingest to .env)..."
+  "Server monitoring — install Vector host metrics on a Linux host..."
   "JumpCloud to GCPW — phase 1..."
   "JumpCloud to GCPW — phase 2"
 )
@@ -304,6 +357,8 @@ dispatch() {
     "sage-amg — onboard new user...")           sage_amg_onboard ;;
     "Server monitoring — install watchdog + heartbeat (+ Vector) on a sage-* server...") install_server_monitoring ;;
     "Server monitoring — provision Better Stack Vector source (saves token to .env)...") provision_vector_source ;;
+    "Server monitoring — provision Vector source for a Linux host (saves token + ingest to .env)...") provision_linux_vector_source ;;
+    "Server monitoring — install Vector host metrics on a Linux host...") install_linux_host_metrics ;;
     "JumpCloud to GCPW — phase 1...")              migration_phase1 ;;
     "JumpCloud to GCPW — phase 2")               migration_phase2 ;;
     "Tailscale — join network (from .env)")            tailscale_key ;;

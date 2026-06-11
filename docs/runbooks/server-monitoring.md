@@ -70,6 +70,36 @@ cycle before doing the others (see AG-27).
 - **Metrics:** the `<server> (Vector)` source in Better Stack shows incoming
   data; the Hosts dashboard renders CPU/RAM/disk.
 
+## Linux droplets (native Vector, not the collector)
+
+Linux hosts (e.g. `amg-bjx`, `iai-bjx`) get **host metrics only**, shipped by a
+**native Vector systemd service** — the same `host_metrics -> metric_to_log ->
+remap -> http "/metrics"` pipeline as the sage-* boxes, just on Linux. They do
+**not** get the Tailscale watchdog/heartbeat (that stack is Windows-specific).
+
+We deliberately do **not** use the Better Stack **collector** on these hosts. The
+collector only ships as a Docker container, and installing the Docker engine
+rewrites iptables in ways that collide with Tailscale's chains (`ts-forward`
+etc.) and can knock the host off the tailnet. Native Vector is a single static
+binary + systemd unit: no Docker, no eBPF, no iptables changes — just one
+outbound HTTPS connection. (Reserve the collector for hosts that already run
+containers — DOKS/k8s, or beejax once it's containerized.)
+
+Driven by `LINUX_SERVERS_MONITORED` in `.env`. Run `./bin/copy` and pick:
+
+1. **"Server monitoring — provision Vector source for a Linux host..."**
+   - Creates (or reuses) the `<host> (Vector)` telemetry source and saves both
+     `VECTOR_SOURCE_TOKEN_<HOST>` **and** `VECTOR_SOURCE_INGEST_<HOST>` to `.env`
+     (the installer needs the per-source ingest host, not just the token).
+2. **"Server monitoring — install Vector host metrics on a Linux host..."**
+   - Copies a bash one-liner to your clipboard. On the host, run it as root; it
+     fetches `install-vector-host-metrics.sh` from the public repo and installs
+     Vector as a `systemd` service (`/etc/vector/vector.yaml`, `vector.service`).
+
+**Verify:** `systemctl status vector` is `active (running)`; the `<host> (Vector)`
+source in Better Stack shows incoming `cpu_seconds_total` / `memory_used_bytes` /
+`filesystem_used_ratio` / `disk_*` / `network_*` metrics.
+
 ## Adding a new always-on server
 
 1. Add its `given_name` to the detector allowlist if it should also be covered
