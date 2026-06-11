@@ -85,20 +85,33 @@ binary + systemd unit: no Docker, no eBPF, no iptables changes — just one
 outbound HTTPS connection. (Reserve the collector for hosts that already run
 containers — DOKS/k8s, or beejax once it's containerized.)
 
+**All Linux hosts ship to ONE shared `Host metrics (Vector)` source** and are told
+apart by a `host=` tag (set by the installer's `--host-name`). This is the
+standard fleet pattern: a single `Host metrics — fleet` dashboard groups/rolls up
+by host, and a single threshold alert (e.g. disk free % < 10) covers every host.
+New Linux hosts auto-appear once the installer runs — no new source/dashboard per
+host. (This is also the data shape the Better Stack collector produces, so a
+future collector swap is seamless.)
+
 Driven by `LINUX_SERVERS_MONITORED` in `.env`. Run `./bin/copy` and pick:
 
-1. **"Server monitoring — provision Vector source for a Linux host..."**
-   - Creates (or reuses) the `<host> (Vector)` telemetry source and saves both
-     `VECTOR_SOURCE_TOKEN_<HOST>` **and** `VECTOR_SOURCE_INGEST_<HOST>` to `.env`
-     (the installer needs the per-source ingest host, not just the token).
+1. **"Server monitoring — provision shared Vector source for Linux hosts..."**
+   - Creates (or reuses) the single `Host metrics (Vector)` source and saves
+     `VECTOR_SHARED_SOURCE_TOKEN` + `VECTOR_SHARED_SOURCE_INGEST` to `.env`.
+     Run once for the whole fleet, not per host.
 2. **"Server monitoring — install Vector host metrics on a Linux host..."**
-   - Copies a bash one-liner to your clipboard. On the host, run it as root; it
-     fetches `install-vector-host-metrics.sh` from the public repo and installs
-     Vector as a `systemd` service (`/etc/vector/vector.yaml`, `vector.service`).
+   - Pick the host. Copies a bash one-liner to your clipboard (shared token +
+     ingest + `--host-name <server>`). On the host, run it as root; it fetches
+     `install-vector-host-metrics.sh` from the public repo and installs Vector as
+     a `systemd` service (`/etc/vector/vector.yaml`, `vector.service`).
 
-**Verify:** `systemctl status vector` is `active (running)`; the `<host> (Vector)`
-source in Better Stack shows incoming `cpu_seconds_total` / `memory_used_bytes` /
-`filesystem_used_ratio` / `disk_*` / `network_*` metrics.
+**Verify:** `systemctl status vector` is `active (running)`; in the `Host metrics
+(Vector)` source, `SELECT tags['host'], count() ... GROUP BY 1` shows the new host
+alongside the others; the `Host metrics — fleet` dashboard renders it.
+
+**Alerts:** threshold chart alerts on the fleet dashboard's by-host line charts
+(disk free % < 10, memory used % > 90) fire per host and route to escalation
+policy **114897** (same as the heartbeats).
 
 ## Adding a new always-on server
 

@@ -194,8 +194,6 @@ new_tailscale_key() {
 
 # Map a server name to its VECTOR_SOURCE_TOKEN_<HOST> .env variable name.
 _vector_token_var() { echo "VECTOR_SOURCE_TOKEN_$(printf '%s' "$1" | tr 'a-z-' 'A-Z_')"; }
-# Map a server name to its VECTOR_SOURCE_INGEST_<HOST> .env variable name.
-_vector_ingest_var() { echo "VECTOR_SOURCE_INGEST_$(printf '%s' "$1" | tr 'a-z-' 'A-Z_')"; }
 # Map a server name to its TAILNET_ANCHORS_<HOST> .env variable name.
 _anchors_var() { echo "TAILNET_ANCHORS_$(printf '%s' "$1" | tr 'a-z-' 'A-Z_')"; }
 # Space-separated server lists from .env (topology kept out of this public repo).
@@ -261,25 +259,21 @@ provision_vector_source() {
   echo "$token"
 }
 
-# Provision a Vector source for a Linux droplet and save BOTH its token and its
-# per-source ingest host to .env (the Linux installer needs the ingest host).
+# Provision the SINGLE shared "Host metrics (Vector)" source that all Linux hosts
+# ship to (host= tag distinguishes them), and save its token + ingest host to
+# .env. Idempotent: reuses the existing shared source.
 provision_linux_vector_source() {
-  local server
-  if [[ -z "$(_linux_servers)" ]]; then echo >&2 "  ⚠  LINUX_SERVERS_MONITORED not set in .env"; return 1; fi
-  # shellcheck disable=SC2046  # intentional word-split of the space-separated server list
-  server=$(gum choose $(_linux_servers) --header "Provision Better Stack Vector source for which Linux host?" </dev/tty) || return 1
-  [[ -z "$server" ]] && return 1
-
-  local out token ingest; out=$(_ensure_vector_source "$server (Vector)") || return 1
+  local out token ingest; out=$(_ensure_vector_source "Host metrics (Vector)") || return 1
   token=${out%%$'\t'*}; ingest=${out#*$'\t'}
-  _env_set "$(_vector_token_var "$server")" "$token"
-  _env_set "$(_vector_ingest_var "$server")" "$ingest"
-  echo >&2 "  Saved $(_vector_token_var "$server") + $(_vector_ingest_var "$server") to .env"
+  _env_set "VECTOR_SHARED_SOURCE_TOKEN" "$token"
+  _env_set "VECTOR_SHARED_SOURCE_INGEST" "$ingest"
+  echo >&2 "  Saved VECTOR_SHARED_SOURCE_TOKEN + VECTOR_SHARED_SOURCE_INGEST to .env"
   echo "$token"
 }
 
 # Emit the remote bash one-liner that installs native Vector host_metrics on a
-# Linux droplet (no Docker, no eBPF -- see scripts/install-vector-host-metrics.sh).
+# Linux host, shipping to the shared source tagged host=<server> (no Docker, no
+# eBPF -- see scripts/install-vector-host-metrics.sh).
 install_linux_host_metrics() {
   local server
   if [[ -z "$(_linux_servers)" ]]; then echo >&2 "  ⚠  LINUX_SERVERS_MONITORED not set in .env"; return 1; fi
@@ -287,12 +281,11 @@ install_linux_host_metrics() {
   server=$(gum choose $(_linux_servers) --header "Install Vector host metrics on which Linux host?" </dev/tty) || return 1
   [[ -z "$server" ]] && return 1
 
-  local tvar ivar tok ingest; tvar=$(_vector_token_var "$server"); ivar=$(_vector_ingest_var "$server")
-  tok="${!tvar:-}"; ingest="${!ivar:-}"
+  local tok="${VECTOR_SHARED_SOURCE_TOKEN:-}" ingest="${VECTOR_SHARED_SOURCE_INGEST:-}"
   if [[ -z "$tok" || -z "$ingest" ]]; then
-    echo >&2 "  ⚠  $tvar / $ivar not set — run 'provision Linux Vector source' first"; return 1
+    echo >&2 "  ⚠  VECTOR_SHARED_SOURCE_TOKEN / _INGEST not set — run 'provision Linux Vector source' first"; return 1
   fi
-  echo "curl -fsSL https://raw.githubusercontent.com/ameriglide/it-admin/main/scripts/install-vector-host-metrics.sh | sudo bash -s -- --source-token \"$tok\" --ingest-host \"$ingest\""
+  echo "curl -fsSL https://raw.githubusercontent.com/ameriglide/it-admin/main/scripts/install-vector-host-metrics.sh | sudo bash -s -- --source-token \"$tok\" --ingest-host \"$ingest\" --host-name \"$server\""
 }
 
 # Emit the remote PowerShell one-liner that installs the watchdog + heartbeat
@@ -340,7 +333,7 @@ LABELS=(
   "sage-amg — onboard new user..."
   "Server monitoring — install watchdog + heartbeat (+ Vector) on a sage-* server..."
   "Server monitoring — provision Better Stack Vector source (saves token to .env)..."
-  "Server monitoring — provision Vector source for a Linux host (saves token + ingest to .env)..."
+  "Server monitoring — provision shared Vector source for Linux hosts (saves token + ingest to .env)..."
   "Server monitoring — install Vector host metrics on a Linux host..."
   "JumpCloud to GCPW — phase 1..."
   "JumpCloud to GCPW — phase 2"
@@ -357,7 +350,7 @@ dispatch() {
     "sage-amg — onboard new user...")           sage_amg_onboard ;;
     "Server monitoring — install watchdog + heartbeat (+ Vector) on a sage-* server...") install_server_monitoring ;;
     "Server monitoring — provision Better Stack Vector source (saves token to .env)...") provision_vector_source ;;
-    "Server monitoring — provision Vector source for a Linux host (saves token + ingest to .env)...") provision_linux_vector_source ;;
+    "Server monitoring — provision shared Vector source for Linux hosts (saves token + ingest to .env)...") provision_linux_vector_source ;;
     "Server monitoring — install Vector host metrics on a Linux host...") install_linux_host_metrics ;;
     "JumpCloud to GCPW — phase 1...")              migration_phase1 ;;
     "JumpCloud to GCPW — phase 2")               migration_phase2 ;;

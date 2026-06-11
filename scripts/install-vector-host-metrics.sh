@@ -11,23 +11,32 @@
 # knock the host off the tailnet. This installer touches no iptables, no Docker,
 # no eBPF -- just one outbound HTTPS connection.
 #
+# All hosts ship to ONE shared "Host metrics (Vector)" source and are told apart
+# by a host= tag (set via --host-name, default = the box's hostname), so a single
+# fleet dashboard can group/roll up by host and one alert can cover every host.
+#
 # Usage (run as root on the target host):
 #   curl -fsSL https://raw.githubusercontent.com/ameriglide/it-admin/main/scripts/install-vector-host-metrics.sh \
-#     | bash -s -- --source-token <TOKEN> --ingest-host s<ID>.us-east-9.betterstackdata.com
+#     | bash -s -- --source-token <SHARED_TOKEN> --ingest-host s<ID>.us-east-9.betterstackdata.com --host-name amg-bjx
 set -euo pipefail
 
 SOURCE_TOKEN=""
 INGEST_HOST=""
+HOST_NAME=""
 VECTOR_VERSION="${VECTOR_VERSION:-}"
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --source-token) SOURCE_TOKEN="$2"; shift 2 ;;
     --ingest-host)  INGEST_HOST="$2";  shift 2 ;;
+    --host-name)    HOST_NAME="$2";    shift 2 ;;
     --vector-version) VECTOR_VERSION="$2"; shift 2 ;;
     *) echo "Unknown argument: $1" >&2; exit 2 ;;
   esac
 done
+
+# Default the host tag to the box's own hostname if not given explicitly.
+HOST_NAME="${HOST_NAME:-$(hostname -s 2>/dev/null || hostname)}"
 
 if [[ -z "$SOURCE_TOKEN" || -z "$INGEST_HOST" ]]; then
   echo "ERROR: --source-token and --ingest-host are both required" >&2
@@ -95,6 +104,7 @@ transforms:
     source: |
       del(.source_type)
       .dt = del(.timestamp)
+      .tags.host = "${HOST_NAME}"
 
 sinks:
   better_stack_metrics:
