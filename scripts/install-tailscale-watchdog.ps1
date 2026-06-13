@@ -9,10 +9,11 @@ param(
     [string]$BetterStackApiToken = $env:BETTERSTACK_UPTIME_TOKEN,
     [int]$PolicyId = 114897,
     [string]$VectorSourceToken,
+    [string]$VectorIngestHost,
     [switch]$SkipVector
 )
 $ErrorActionPreference = 'Stop'
-$Script:Revision = "a2d2043"
+$Script:Revision = "8200985"
 
 if (-not $BetterStackApiToken) { throw "BetterStack API token required (-BetterStackApiToken or BETTERSTACK_UPTIME_TOKEN)." }
 
@@ -89,9 +90,15 @@ Copy-Item -Path (Get-RepoScript 'repair-tailscale-service-deps.ps1') -Destinatio
 
 # 7. Bundle Vector host_metrics when a source token is supplied (AMG-403).
 # install-vector-host-metrics.ps1 is idempotent (skips the binary if already
-# present), so passing a token for an already-onboarded box is safe.
+# present), so passing a token for an already-onboarded box is safe. The ingest
+# host is required for delivery to work; without it, skip rather than install a
+# config that silently ingests nothing.
 if (-not $SkipVector -and $VectorSourceToken) {
-    & (Get-RepoScript 'install-vector-host-metrics.ps1') -SourceToken $VectorSourceToken
+    if ($VectorIngestHost) {
+        & (Get-RepoScript 'install-vector-host-metrics.ps1') -SourceToken $VectorSourceToken -IngestHost $VectorIngestHost -HostName $Server
+    } else {
+        Write-Warning "Skipping Vector: -VectorIngestHost not supplied (per-source ingesting host, e.g. s<id>.us-east-9.betterstackdata.com)."
+    }
 }
 
 Write-Host "Watchdog installed on $Server." -ForegroundColor Green

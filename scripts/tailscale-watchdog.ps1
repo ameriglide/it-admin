@@ -15,7 +15,7 @@ $LogPath    = Join-Path $BaseDir 'tailscale-watchdog.log'
 . $CorePath
 # Set AFTER dot-sourcing: watchdog-core.ps1 also assigns $Script:Revision, so
 # stamping it before the dot-source gets clobbered to "" (logs showed empty "[]").
-$Script:Revision = "a2d2043"
+$Script:Revision = "8200985"
 
 function Write-WatchdogLog {
     param([string]$Message)

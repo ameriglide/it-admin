@@ -194,6 +194,8 @@ new_tailscale_key() {
 
 # Map a server name to its VECTOR_SOURCE_TOKEN_<HOST> .env variable name.
 _vector_token_var() { echo "VECTOR_SOURCE_TOKEN_$(printf '%s' "$1" | tr 'a-z-' 'A-Z_')"; }
+# Map a server name to its VECTOR_SOURCE_INGEST_<HOST> .env variable name.
+_vector_ingest_var() { echo "VECTOR_SOURCE_INGEST_$(printf '%s' "$1" | tr 'a-z-' 'A-Z_')"; }
 # Map a server name to its TAILNET_ANCHORS_<HOST> .env variable name.
 _anchors_var() { echo "TAILNET_ANCHORS_$(printf '%s' "$1" | tr 'a-z-' 'A-Z_')"; }
 # Space-separated server lists from .env (topology kept out of this public repo).
@@ -251,11 +253,12 @@ provision_vector_source() {
   server=$(gum choose $(_servers) --header "Provision Better Stack Vector source for which server?" </dev/tty) || return 1
   [[ -z "$server" ]] && return 1
 
-  local out token; out=$(_ensure_vector_source "$server (Vector)") || return 1
-  token=${out%%$'\t'*}
-  local var; var=$(_vector_token_var "$server")
-  _env_set "$var" "$token"
-  echo >&2 "  Saved $var to .env"
+  local out token ingest; out=$(_ensure_vector_source "$server (Vector)") || return 1
+  token=${out%%$'\t'*}; ingest=${out#*$'\t'}
+  local tvar ivar; tvar=$(_vector_token_var "$server"); ivar=$(_vector_ingest_var "$server")
+  _env_set "$tvar" "$token"
+  _env_set "$ivar" "$ingest"
+  echo >&2 "  Saved $tvar + $ivar to .env"
   echo "$token"
 }
 
@@ -307,13 +310,19 @@ install_server_monitoring() {
   local avar anchors; avar=$(_anchors_var "$server"); anchors="${!avar:-}"
   if [[ -z "$anchors" ]]; then echo >&2 "  ⚠  $avar not set in .env — cannot supply watchdog anchors"; return 1; fi
 
-  local var vtok; var=$(_vector_token_var "$server"); vtok="${!var:-}"
+  local var vtok ivar vingest
+  var=$(_vector_token_var "$server"); vtok="${!var:-}"
+  ivar=$(_vector_ingest_var "$server"); vingest="${!ivar:-}"
   local cmd="Set-ExecutionPolicy Bypass -Scope Process -Force; irm https://raw.githubusercontent.com/ameriglide/it-admin/main/scripts/install-tailscale-watchdog.ps1 -OutFile \$env:TEMP\\install-tailscale-watchdog.ps1; & \$env:TEMP\\install-tailscale-watchdog.ps1 -Server ${server} -Anchors ${anchors} -BetterStackApiToken \"$up\""
-  if [[ -n "$vtok" ]]; then
-    cmd="$cmd -VectorSourceToken \"$vtok\""
+  if [[ -n "$vtok" && -n "$vingest" ]]; then
+    cmd="$cmd -VectorSourceToken \"$vtok\" -VectorIngestHost \"$vingest\""
   else
     cmd="$cmd -SkipVector"
-    echo >&2 "  ⚠  $var not set — emitting -SkipVector (run 'provision Vector source' first for host metrics)"
+    if [[ -z "$vtok" ]]; then
+      echo >&2 "  ⚠  $var not set — emitting -SkipVector (run 'provision Vector source' first for host metrics)"
+    else
+      echo >&2 "  ⚠  $ivar not set — emitting -SkipVector (re-run 'provision Vector source' to cache the ingest host)"
+    fi
   fi
   echo "$cmd"
 }

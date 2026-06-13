@@ -1,14 +1,20 @@
 # install-vector-host-metrics.ps1
-# Installs Vector as a Windows service shipping host_metrics (CPU/RAM/disk) to a
-# Better Stack telemetry source. Mirrors the AMG-402 sage-amg setup. ASCII only.
+# Installs Vector as a Windows service shipping host_metrics (CPU/RAM/disk/network)
+# to a Better Stack telemetry source. Windows counterpart to
+# install-vector-host-metrics.sh; mirrors the same known-good pipeline:
+# host_metrics -> metric_to_log -> remap -> http "/metrics". ASCII only.
 [CmdletBinding()]
 param(
     [Parameter(Mandatory)][string]$SourceToken,
-    [string]$IngestHost = 'in.logs.betterstack.com',
-    [string]$VectorVersion = '0.40.0'
+    # Per-source ingesting host, e.g. s2493609.us-east-9.betterstackdata.com
+    # (Better Stack -> the source -> "ingesting host"). NOT in.logs.betterstack.com.
+    [Parameter(Mandatory)][string]$IngestHost,
+    # Tag every metric with host=<name> so a fleet dashboard can group by host.
+    [string]$HostName = $env:COMPUTERNAME,
+    [string]$VectorVersion = '0.49.0'
 )
 $ErrorActionPreference = 'Stop'
-$Script:Revision = ""
+$Script:Revision = "d253733"
 
 $vectorDir  = 'C:\Program Files\Vector'
 $configPath = Join-Path $vectorDir 'vector.yaml'
@@ -30,33 +36,59 @@ if (-not (Test-Path $exePath)) {
     Copy-Item -Path (Join-Path $pkgRoot '*') -Destination $vectorDir -Recurse -Force
 }
 
-# NOTE: Confirm the sink (ingest host, codec, and metrics vs logs handling) against
-# the working AMG-402 sage-amg Vector setup before relying on this in production.
+# Pipeline mirrors the working sage-amg / Linux setup: raw host_metrics are turned
+# into log events (metric_to_log), stamped with .dt + host tag (remap), then POSTed
+# to the source's /metrics endpoint as gzipped JSON with bearer auth. A bare
+# host_metrics -> http sink (no metric_to_log, wrong URI) silently ingests nothing.
 $config = @"
 data_dir: C:\ProgramData\vector
+
 sources:
-  host:
+  better_stack_host_metrics:
     type: host_metrics
     scrape_interval_secs: 30
+    collectors: [cpu, disk, filesystem, memory, network]
+
+transforms:
+  better_stack_host_metrics_log:
+    type: metric_to_log
+    inputs: ["better_stack_host_metrics"]
+  better_stack_host_metrics_parser:
+    type: remap
+    inputs: ["better_stack_host_metrics_log"]
+    source: |
+      del(.source_type)
+      .dt = del(.timestamp)
+      .tags.host = "$HostName"
+
 sinks:
-  better_stack:
+  better_stack_metrics:
     type: http
-    inputs: [host]
-    uri: https://$IngestHost
+    method: post
+    inputs: ["better_stack_host_metrics_parser"]
+    uri: "https://$IngestHost/metrics"
     encoding:
       codec: json
-    request:
-      headers:
-        Authorization: Bearer $SourceToken
+    compression: gzip
+    auth:
+      strategy: bearer
+      token: "$SourceToken"
 "@
 New-Item -ItemType Directory -Path 'C:\ProgramData\vector' -Force | Out-Null
 Set-Content -Path $configPath -Value $config -Encoding ascii
 
-# Register Vector as a service via sc.exe (idempotent).
+# Fail loudly on a bad config rather than registering a service that crash-loops.
+& $exePath validate $configPath
+if ($LASTEXITCODE -ne 0) { throw "vector validate failed for $configPath" }
+
+# Register Vector as a service (idempotent). New-Service handles the quoting of a
+# spaced binary path + args cleanly; sc.exe's "binPath= " form is brittle and was
+# silently failing (exit 1639) under PowerShell's native-arg passing.
+$binaryPath = '"{0}" --config "{1}"' -f $exePath, $configPath
 $svc = Get-Service -Name 'vector' -ErrorAction SilentlyContinue
 if (-not $svc) {
-    & sc.exe create vector binPath= "`"$exePath`" --config `"$configPath`"" start= auto | Out-Null
+    New-Service -Name 'vector' -DisplayName 'Vector (Better Stack host metrics)' `
+        -BinaryPathName $binaryPath -StartupType Automatic | Out-Null
 }
-Restart-Service -Name 'vector' -Force -ErrorAction SilentlyContinue
-Start-Service  -Name 'vector' -ErrorAction SilentlyContinue
-Write-Host "  Vector host_metrics installed and started." -ForegroundColor Green
+Restart-Service -Name 'vector' -Force
+Write-Host "  Vector host_metrics installed and started -> https://$IngestHost/metrics" -ForegroundColor Green
