@@ -14,7 +14,7 @@ param(
     [string]$VectorVersion = '0.49.0'
 )
 $ErrorActionPreference = 'Stop'
-$Script:Revision = "d253733"
+$Script:Revision = "a53c48d"
 
 $vectorDir  = 'C:\Program Files\Vector'
 $configPath = Join-Path $vectorDir 'vector.yaml'
@@ -40,6 +40,27 @@ if (-not (Test-Path $exePath)) {
 # into log events (metric_to_log), stamped with .dt + host tag (remap), then POSTed
 # to the source's /metrics endpoint as gzipped JSON with bearer auth. A bare
 # host_metrics -> http sink (no metric_to_log, wrong URI) silently ingests nothing.
+#
+# A scheduled `exec` source also runs sage-metrics.ps1 to emit Sage/RDS gauges
+# (rdp_active, rdp_total, pvxwin32_count, pvxwin32_ram_mb). Those gauges are folded
+# into the SAME metric_to_log -> remap -> sink path via log_to_metric, so they land
+# in the same Better Stack source as the host metrics (used for AWS right-sizing).
+
+# sage-metrics.ps1: emits one compact-JSON line of Sage/RDS counts to stdout.
+# (Single-quoted here-string: contents are literal, not interpolated by this script.)
+$sageMetricsPath = Join-Path $vectorDir 'sage-metrics.ps1'
+$sageMetrics = @'
+$ErrorActionPreference = "SilentlyContinue"
+$q = @(quser 2>$null)
+$rdpTotal = [math]::Max(0, $q.Count - 1)
+$rdpActive = ($q | Select-String "Active").Count
+$pvx = @(Get-Process pvxwin32 -ErrorAction SilentlyContinue)
+$pvxCount = $pvx.Count
+$pvxRamMb = if ($pvxCount -gt 0) { [math]::Round((($pvx | Measure-Object WorkingSet64 -Sum).Sum) / 1MB) } else { 0 }
+[Console]::Out.WriteLine((@{ rdp_active = $rdpActive; rdp_total = $rdpTotal; pvxwin32_count = $pvxCount; pvxwin32_ram_mb = $pvxRamMb } | ConvertTo-Json -Compress))
+'@
+Set-Content -Path $sageMetricsPath -Value $sageMetrics -Encoding ascii
+
 $config = @"
 data_dir: C:\ProgramData\vector
 
@@ -49,10 +70,44 @@ sources:
     scrape_interval_secs: 30
     collectors: [cpu, disk, filesystem, memory, network]
 
+  sage_session_metrics:
+    type: exec
+    mode: scheduled
+    scheduled:
+      exec_interval_secs: 30
+    command: ["powershell", "-NoProfile", "-NonInteractive", "-File", "C:\\Program Files\\Vector\\sage-metrics.ps1"]
+
 transforms:
+  sage_session_parsed:
+    type: remap
+    inputs: ["sage_session_metrics"]
+    source: |
+      . = parse_json!(string!(.message))
+
+  sage_session_to_metric:
+    type: log_to_metric
+    inputs: ["sage_session_parsed"]
+    metrics:
+      - type: gauge
+        field: rdp_active
+        tags:
+          host: "$HostName"
+      - type: gauge
+        field: rdp_total
+        tags:
+          host: "$HostName"
+      - type: gauge
+        field: pvxwin32_count
+        tags:
+          host: "$HostName"
+      - type: gauge
+        field: pvxwin32_ram_mb
+        tags:
+          host: "$HostName"
+
   better_stack_host_metrics_log:
     type: metric_to_log
-    inputs: ["better_stack_host_metrics"]
+    inputs: ["better_stack_host_metrics", "sage_session_to_metric"]
   better_stack_host_metrics_parser:
     type: remap
     inputs: ["better_stack_host_metrics_log"]
