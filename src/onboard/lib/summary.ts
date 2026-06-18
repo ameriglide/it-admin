@@ -12,6 +12,9 @@ ${LINE}
   Google Workspace
     Temp Password: ${ctx.googlePassword ?? "already existed"}
 
+  Google Groups
+    Joined: ${ctx.groupsJoined?.length ? ctx.groupsJoined.join(", ") : "skipped"}
+
   Amberjack
     Employee ID: ${ctx.amberjackEmployeeId ?? "skipped"}
 

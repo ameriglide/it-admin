@@ -32,8 +32,16 @@ export async function filter(items: string[], placeholder = "Type to search"): P
   return text.trim();
 }
 
-export async function chooseMulti(items: string[]): Promise<string[]> {
-  const result = await gum(["choose", "--no-limit", ...items]);
+export async function chooseMulti(
+  items: string[],
+  options: { selected?: string[] } = {},
+): Promise<string[]> {
+  const args = ["choose", "--no-limit"];
+  if (options.selected?.length) {
+    args.push(`--selected=${options.selected.join(",")}`);
+  }
+  args.push(...items);
+  const result = await gum(args);
   return result.split("\n").filter(Boolean);
 }
 

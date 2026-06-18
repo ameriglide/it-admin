@@ -8,6 +8,9 @@ export interface Context {
   // Phenix preselect (skip prompt when set):
   phenixChannel?: string; // channel name, e.g. "Phone"
 
+  // Role preselect for the Google Groups step (skip prompt when set):
+  role?: string; // configured role name, e.g. "Sales Rep"
+
   // Populated by steps:
   googlePassword?: string | null; // null = already existed
   amberjackEmployeeId?: number;
@@ -18,6 +21,7 @@ export interface Context {
   credentialSid?: string;
   phoneNumber?: string;
   zoiperConfigPath?: string;
+  groupsJoined?: string[]; // Google Group addresses the user was added to
 }
 
 export interface Step {

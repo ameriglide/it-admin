@@ -1,5 +1,6 @@
 import type { Context, Step } from "./types";
 import { googleStep } from "./steps/google";
+import { googleGroupsStep } from "./steps/google-groups";
 import { amberjackStep } from "./steps/amberjack";
 import { phenixStep } from "./steps/phenix";
 import { twilioStep } from "./steps/twilio";
@@ -10,6 +11,7 @@ import { closeAll } from "./lib/db";
 
 const steps: Step[] = [
   googleStep,
+  googleGroupsStep,
   amberjackStep,
   phenixStep,
   twilioStep,
@@ -35,6 +37,14 @@ export async function run(
     console.log(
       "  (TWILIO_ACCOUNT_SID unset - skipping Twilio, Direct Line, Zoiper)",
     );
+  }
+
+  // No role->group config for this tenant: skip the Google Groups step rather
+  // than prompt with an empty list. (Step key = "Google Groups" lowercased,
+  // whitespace stripped = "googlegroups".)
+  if (!process.env.ONBOARD_ROLES) {
+    if (!skip.includes("googlegroups")) skip.push("googlegroups");
+    console.log("  (ONBOARD_ROLES unset - skipping Google Groups)");
   }
 
   try {

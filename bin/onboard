@@ -16,6 +16,7 @@ const { values } = parseArgs({
     skip: { type: "string" },
     "direct-line": { type: "boolean", default: false },
     channel: { type: "string" },
+    role: { type: "string" },
   },
   strict: true,
 });
@@ -46,6 +47,7 @@ const ctx: Context = {
   email,
   directLine,
   phenixChannel: values.channel,
+  role: values.role,
 };
 
 await run(ctx, skip);
