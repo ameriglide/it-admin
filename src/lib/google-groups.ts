@@ -66,7 +66,7 @@ function statusOf(err: any): number | undefined {
 }
 
 // Adds userEmail to groupEmail as a MEMBER. Idempotent: an existing membership
-// (409 / duplicate) resolves to "added" rather than throwing.
+// (409 / duplicate) resolves to "existed" rather than throwing.
 export async function addGroupMember(
   groupEmail: string,
   userEmail: string,
