@@ -1,0 +1,149 @@
+#!/usr/bin/env bun
+
+import "../src/lib/load-env"; // must be first: loads repo-root .env regardless of cwd
+import { parseArgs } from "util";
+import {
+  parseRoles,
+  resolveGroupAddress,
+  addGroupMember,
+  listGroupMemberEmails,
+  getDomain,
+} from "../src/lib/google-groups";
+
+const BROAD_DEFAULT = ["staff@"];
+
+// "Broad" groups (everyone-style lists) are excluded from the audit drift
+// comparison. Configurable via ONBOARD_BROAD_GROUPS (comma-separated tokens).
+function broadGroups(domain: string): Set<string> {
+  const raw = process.env.ONBOARD_BROAD_GROUPS;
+  const tokens =
+    raw && raw.trim()
+      ? raw.split(",").map((s) => s.trim()).filter(Boolean)
+      : BROAD_DEFAULT;
+  return new Set(tokens.map((t) => resolveGroupAddress(t, domain).toLowerCase()));
+}
+
+function usage(): never {
+  console.error(
+    [
+      "Usage:",
+      "  bin/groups roles",
+      "  bin/groups show <email>",
+      '  bin/groups audit "<Role>"',
+      '  bin/groups add <email> [--role "<Role>"] [--group <addr>]',
+    ].join("\n"),
+  );
+  process.exit(1);
+}
+
+const argv = Bun.argv.slice(2);
+const cmd = argv[0];
+const domain = getDomain();
+const roles = parseRoles(process.env.ONBOARD_ROLES);
+
+function rolesToAddresses(role: string): string[] {
+  return roles[role].map((t) => resolveGroupAddress(t, domain));
+}
+
+if (cmd === "roles") {
+  const names = Object.keys(roles);
+  if (names.length === 0) {
+    console.log("No roles configured (set ONBOARD_ROLES).");
+    process.exit(0);
+  }
+  for (const name of names) {
+    console.log(`${name}:`);
+    for (const t of roles[name]) console.log(`  ${resolveGroupAddress(t, domain)}`);
+  }
+  process.exit(0);
+}
+
+if (cmd === "show") {
+  const email = argv[1];
+  if (!email) usage();
+  const all = new Set<string>();
+  for (const tokens of Object.values(roles)) {
+    for (const t of tokens) all.add(resolveGroupAddress(t, domain));
+  }
+  const lower = email.toLowerCase();
+  console.log(`Group membership for ${email}:`);
+  for (const group of [...all].sort()) {
+    const members = await listGroupMemberEmails(group);
+    console.log(`  ${members.includes(lower) ? "✓" : " "} ${group}`);
+  }
+  process.exit(0);
+}
+
+if (cmd === "audit") {
+  const roleName = argv[1];
+  if (!roleName) usage();
+  if (!roles[roleName]) {
+    console.error(`Unknown role: ${roleName}`);
+    process.exit(1);
+  }
+  const broad = broadGroups(domain);
+  const groups = rolesToAddresses(roleName);
+  const memberMap = new Map<string, string[]>();
+  for (const g of groups) memberMap.set(g, await listGroupMemberEmails(g));
+
+  console.log(`Audit: ${roleName}`);
+  for (const g of groups) {
+    const tag = broad.has(g.toLowerCase()) ? "  (broad, not diffed)" : "";
+    console.log(`  ${String(memberMap.get(g)!.length).padStart(4)}  ${g}${tag}`);
+  }
+
+  const narrow = groups.filter((g) => !broad.has(g.toLowerCase()));
+  if (narrow.length < 2) {
+    console.log("\nNot enough non-broad groups to compute drift.");
+    process.exit(0);
+  }
+  const union = new Set<string>();
+  for (const g of narrow) for (const m of memberMap.get(g)!) union.add(m);
+  console.log("\nDrift (in some but not all of the role's narrow groups):");
+  let any = false;
+  for (const m of [...union].sort()) {
+    const missing = narrow.filter((g) => !memberMap.get(g)!.includes(m));
+    if (missing.length > 0) {
+      any = true;
+      console.log(`  ${m}  missing from: ${missing.join(", ")}`);
+    }
+  }
+  if (!any) console.log("  none");
+  process.exit(0);
+}
+
+if (cmd === "add") {
+  const { values, positionals } = parseArgs({
+    args: argv.slice(1),
+    options: {
+      role: { type: "string" },
+      group: { type: "string" },
+    },
+    allowPositionals: true,
+    strict: true,
+  });
+  const email = positionals[0];
+  if (!email) usage();
+
+  let targets: string[];
+  if (values.group) {
+    targets = [resolveGroupAddress(values.group, domain)];
+  } else if (values.role) {
+    if (!roles[values.role]) {
+      console.error(`Unknown role: ${values.role}`);
+      process.exit(1);
+    }
+    targets = rolesToAddresses(values.role);
+  } else {
+    console.error('Specify --role "<Role>" or --group <addr>');
+    process.exit(1);
+  }
+
+  for (const g of targets) {
+    const result = await addGroupMember(g, email);
+    console.log(`  ${result === "added" ? "+" : "="} ${g}`);
+  }
+  process.exit(0);
+}
+
+usage();
