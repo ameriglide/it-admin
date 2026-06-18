@@ -100,6 +100,27 @@ Notes:
 - The workstation one-liners require an **elevated** PowerShell (`#Requires -RunAsAdministrator`).
 - `bin/copy` remains a menu of the individual one-liners for one-offs (re-imaging, standalone Zoiper config, Tailscale, sage-amg, JumpCloud migration phases).
 
+### Google Groups
+
+`bin/onboard` adds new hires to distribution lists based on role bundles defined
+in `ONBOARD_ROLES` (a JSON map of role name -> group addresses, in `.env`). The
+onboarder picks a role; its groups are pre-selected and can be toggled before
+applying. Pass `--role "Sales Rep"` to skip the prompt. If `ONBOARD_ROLES` is
+unset, the step is skipped.
+
+Short group tokens (`sales-staff@`) expand to `<localpart>@$DOMAIN`; full
+addresses (`marketing@other-domain.com`) pass through unchanged.
+
+To repair existing membership, use `bin/groups`:
+
+- `bin/groups roles` — list configured roles and their groups.
+- `bin/groups show <email>` — which role-groups a person is currently in.
+- `bin/groups audit "<Role>"` — member counts plus a drift report (people in
+  some but not all of a role's groups). Broad lists like `staff@` are shown but
+  excluded from the diff; override the broad set with `ONBOARD_BROAD_GROUPS`.
+- `bin/groups add <email> [--role "<Role>"] [--group <addr>]` — add a person to a
+  role's full bundle (or one group), idempotently.
+
 ### Offboard a departing employee
 
 ```sh
