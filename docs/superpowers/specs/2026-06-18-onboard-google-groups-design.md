@@ -135,8 +135,16 @@ Reconciles *existing* membership. Subcommands:
 - `bin/groups audit "<Role>"` — for the role's groups, print each group's member
   count and a **drift report**: members present in some-but-not-all of the
   role's groups (set difference across the bundle). This surfaces the stale
-  `sales-staff@` people — e.g. someone in `staff@` + `team-x@` but missing from
+  `sales-staff@` people — e.g. someone in `team-x@` but missing from
   `sales-staff@`.
+
+  Broad "all-staff" groups (default: `staff@`, plus any address matching a
+  configurable `ONBOARD_BROAD_GROUPS` list) are **excluded from the drift
+  comparison** — pairing the 26-member `staff@` with `sales-staff@` would
+  otherwise flag all 26 as "missing from sales-staff@," which is noise. Broad
+  groups are still shown with their counts, just not diffed. If a role's bundle
+  has fewer than two non-broad groups, drift reporting is skipped (nothing
+  meaningful to compare) and only counts are printed.
 - `bin/groups add <email> [--role "<Role>"] [--group <addr>]` — add the user to a
   role's full bundle (or to a single `--group`), idempotent, printing
   added/existed per group. This is the command used to reconcile `sales-staff@`
