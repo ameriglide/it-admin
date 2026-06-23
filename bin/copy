@@ -79,7 +79,7 @@ migration_phase1() {
 }
 
 migration_phase2() {
-  echo '& $env:TEMP\deploy-gcpw.ps1 -Phase 2'
+  echo "Set-ExecutionPolicy Bypass -Scope Process -Force; irm https://raw.githubusercontent.com/ameriglide/it-admin/main/scripts/deploy-gcpw.ps1 -OutFile \$env:TEMP\\deploy-gcpw.ps1; & \$env:TEMP\\deploy-gcpw.ps1 -Phase 2"
 }
 
 zoiper_setup() {
