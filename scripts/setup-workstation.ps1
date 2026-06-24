@@ -109,7 +109,7 @@ if ((Should-Run "tailscale") -and -not $TailscaleAuthKey) {
 $ErrorActionPreference = "Stop"
 $ProgressPreference = "SilentlyContinue"
 # Stamped by pre-commit hook -- do not edit manually
-$Script:Revision = "70a11c5"
+$Script:Revision = "210e6e2"
 
 Write-Host "setup-workstation.ps1 rev $Script:Revision" -ForegroundColor DarkGray
 
@@ -251,7 +251,8 @@ Write-Host ""
 if (Should-Run "meshagent") {
 if ($MeshCentralUrl -and $MeshGroupId) {
     Write-Host "MeshCentral agent..." -ForegroundColor Yellow
-    $existing = Get-Service "Mesh Agent" -ErrorAction SilentlyContinue
+    # Match the service by name explicitly (the MeshCentral agent registers as "Mesh Agent").
+    $existing = Get-Service -Name "Mesh Agent" -ErrorAction SilentlyContinue
     if ($existing) {
         Write-Host "  Already installed. Skipping." -ForegroundColor Green
     } else {
@@ -269,7 +270,8 @@ if ($MeshCentralUrl -and $MeshGroupId) {
                 Write-Warning "  Mesh Agent install failed (exit code $($p.ExitCode))."
             }
         } catch {
-            Write-Warning "  Mesh Agent install skipped: $($_.Exception.Message)"
+            # Surface $url so a stale/invalid meshid token is diagnosable from the console.
+            Write-Warning "  Mesh Agent install skipped ($url): $($_.Exception.Message)"
         } finally {
             [System.Net.ServicePointManager]::ServerCertificateValidationCallback = $cb
         }

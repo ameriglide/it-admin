@@ -159,10 +159,13 @@ install_tailscale() {
 }
 
 # Map the active DOMAIN to its MeshCentral group id (.env). Echoes the id or empty.
+# Warns (does not silently default) when DOMAIN matches no known fleet.
 _mesh_group_for_domain() {
   case "${DOMAIN:-}" in
     inetalliance.net) echo "${MESH_GROUP_ID_IAI:-}" ;;
-    *)                echo "${MESH_GROUP_ID_AMERIGLIDE:-}" ;;
+    ameriglide.com)   echo "${MESH_GROUP_ID_AMERIGLIDE:-}" ;;
+    *) echo >&2 "  ⚠  DOMAIN='${DOMAIN:-}' matches no known fleet — defaulting mesh group to AmeriGlide"
+       echo "${MESH_GROUP_ID_AMERIGLIDE:-}" ;;
   esac
 }
 
