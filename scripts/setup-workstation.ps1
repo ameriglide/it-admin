@@ -80,7 +80,9 @@ param(
     [string]$Brand = "AmeriGlide",
     [string]$MarketingUrl = "https://www.ameriglide.com",
     [string]$HeadscaleUrl,
-    [string[]]$Anchors = @()
+    [string[]]$Anchors = @(),
+    [string]$MeshCentralUrl,
+    [string]$MeshGroupId
 )
 
 $BrandLower = $Brand.ToLower()
@@ -99,7 +101,7 @@ $ProgressPreference = 'SilentlyContinue'
 if ((Should-Run "tailscale") -and -not $TailscaleAuthKey) {
     $TailscaleAuthKey = Read-Host "Tailscale auth key (tskey-auth-...)"
 }
-if (-not $TailscaleAuthKey) {
+if ((Should-Run "tailscale") -and -not $TailscaleAuthKey) {
     Write-Error "Tailscale auth key is required. Generate one at your Headscale admin console and re-run."
     exit 1
 }
@@ -107,7 +109,7 @@ if (-not $TailscaleAuthKey) {
 $ErrorActionPreference = "Stop"
 $ProgressPreference = "SilentlyContinue"
 # Stamped by pre-commit hook -- do not edit manually
-$Script:Revision = "d253733"
+$Script:Revision = "70a11c5"
 
 Write-Host "setup-workstation.ps1 rev $Script:Revision" -ForegroundColor DarkGray
 
@@ -240,6 +242,42 @@ if ($tsCmd) {
     Write-Warning "  Tailscale CLI not found. May require a reboot before auth."
 }
 Write-Host ""
+}
+
+# ---------------------------------------------------------------------------
+# MeshCentral agent (remote management). Tailnet-only server, self-signed cert.
+# Idempotent: skip if the Mesh Agent service already exists.
+# ---------------------------------------------------------------------------
+if (Should-Run "meshagent") {
+if ($MeshCentralUrl -and $MeshGroupId) {
+    Write-Host "MeshCentral agent..." -ForegroundColor Yellow
+    $existing = Get-Service "Mesh Agent" -ErrorAction SilentlyContinue
+    if ($existing) {
+        Write-Host "  Already installed. Skipping." -ForegroundColor Green
+    } else {
+        try {
+            # Self-signed server cert: bypass validation for THIS download only.
+            $cb = [System.Net.ServicePointManager]::ServerCertificateValidationCallback
+            [System.Net.ServicePointManager]::ServerCertificateValidationCallback = { $true }
+            $exe = "$env:TEMP\meshagent.exe"
+            $url = "$MeshCentralUrl/meshagents?id=4&meshid=$MeshGroupId&installflags=0"
+            Invoke-WebRequest -Uri $url -OutFile $exe -UseBasicParsing
+            $p = Start-Process -FilePath $exe -ArgumentList "-fullinstall" -Wait -PassThru
+            if ($p.ExitCode -eq 0) {
+                Write-Host "  Mesh Agent installed." -ForegroundColor Green
+            } else {
+                Write-Warning "  Mesh Agent install failed (exit code $($p.ExitCode))."
+            }
+        } catch {
+            Write-Warning "  Mesh Agent install skipped: $($_.Exception.Message)"
+        } finally {
+            [System.Net.ServicePointManager]::ServerCertificateValidationCallback = $cb
+        }
+    }
+    Write-Host ""
+} elseif ($Only -contains "meshagent") {
+    Write-Warning "  -Only meshagent requires -MeshCentralUrl and -MeshGroupId."
+}
 }
 
 # ---------------------------------------------------------------------------
