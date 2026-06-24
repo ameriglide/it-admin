@@ -60,7 +60,7 @@ install_apps() {
   fi
   local murl="${MESHCENTRAL_URL:-}" mgid; mgid=$(_mesh_group_for_domain)
   if [[ -n "$murl" && -n "$mgid" ]]; then
-    cmd="$cmd -MeshCentralUrl \"$murl\" -MeshGroupId \"$mgid\""
+    cmd="$cmd -MeshCentralUrl '$murl' -MeshGroupId '$mgid'"
   else
     echo >&2 "  ⚠  MESHCENTRAL_URL / group id not set in .env — mesh agent will be skipped in full setup"
   fi
@@ -181,7 +181,7 @@ install_meshagent() {
     *)   gid="${MESH_GROUP_ID_AMERIGLIDE:-}" ;;
   esac
   if [[ -z "$gid" ]]; then echo >&2 "  ⚠  group id for $tenant not set in .env"; return 1; fi
-  echo "Set-ExecutionPolicy Bypass -Scope Process -Force; irm https://raw.githubusercontent.com/ameriglide/it-admin/main/scripts/setup-workstation.ps1 -OutFile \$env:TEMP\\setup-workstation.ps1; & \$env:TEMP\\setup-workstation.ps1 -Only meshagent -MeshCentralUrl \"$url\" -MeshGroupId \"$gid\""
+  echo "Set-ExecutionPolicy Bypass -Scope Process -Force; irm https://raw.githubusercontent.com/ameriglide/it-admin/main/scripts/setup-workstation.ps1 -OutFile \$env:TEMP\\setup-workstation.ps1; & \$env:TEMP\\setup-workstation.ps1 -Only meshagent -MeshCentralUrl '$url' -MeshGroupId '$gid'"
 }
 
 tailscale_key() {
