@@ -1,0 +1,12 @@
+# MeshCentral - tailnet-only workstation remote management.
+# Bind to the droplet's tailnet IP (100.64.x.x) so there is no public listener.
+# Set MESH_BIND to the tailnet IP in ops/meshcentral/.env on the droplet.
+services:
+  meshcentral:
+    image: ghcr.io/ylianst/meshcentral:latest
+    restart: unless-stopped
+    ports:
+      - "${MESH_BIND}:443:443"
+    volumes:
+      - ./meshcentral-data:/opt/meshcentral/meshcentral-data
+      - ./meshcentral-files:/opt/meshcentral/meshcentral-files
