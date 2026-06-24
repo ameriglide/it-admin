@@ -58,12 +58,6 @@ install_apps() {
   else
     echo >&2 "  ⚠  ZOIPER_USERNAME/ZOIPER_PASSWORD not set in .env — Zoiper activation will be skipped"
   fi
-  local murl="${MESHCENTRAL_URL:-}" mgid; mgid=$(_mesh_group_for_domain)
-  if [[ -n "$murl" && -n "$mgid" ]]; then
-    cmd="$cmd -MeshCentralUrl '$murl' -MeshGroupId '$mgid'"
-  else
-    echo >&2 "  ⚠  MESHCENTRAL_URL / group id not set in .env — mesh agent will be skipped in full setup"
-  fi
   echo "$cmd"
 }
 
@@ -156,32 +150,6 @@ install_tailscale() {
     key="<paste-key-here>"
   fi
   echo "Set-ExecutionPolicy Bypass -Scope Process -Force; irm https://raw.githubusercontent.com/ameriglide/it-admin/main/scripts/setup-workstation.ps1 -OutFile \$env:TEMP\\setup-workstation.ps1; & \$env:TEMP\\setup-workstation.ps1 -TailscaleAuthKey \"$key\" -HeadscaleUrl \"${HEADSCALE_URL:-}\" -Only tailscale"
-}
-
-# Map the active DOMAIN to its MeshCentral group id (.env). Echoes the id or empty.
-# Warns (does not silently default) when DOMAIN matches no known fleet.
-_mesh_group_for_domain() {
-  case "${DOMAIN:-}" in
-    inetalliance.net) echo "${MESH_GROUP_ID_IAI:-}" ;;
-    ameriglide.com)   echo "${MESH_GROUP_ID_AMERIGLIDE:-}" ;;
-    *) echo >&2 "  ⚠  DOMAIN='${DOMAIN:-}' matches no known fleet — defaulting mesh group to AmeriGlide"
-       echo "${MESH_GROUP_ID_AMERIGLIDE:-}" ;;
-  esac
-}
-
-# Emit the one-liner that installs ONLY the MeshCentral agent, into the device
-# group chosen by tenant. Server URL + per-fleet group ids come from .env.
-install_meshagent() {
-  local url="${MESHCENTRAL_URL:-}"
-  if [[ -z "$url" ]]; then echo >&2 "  ⚠  MESHCENTRAL_URL not set in .env"; return 1; fi
-  local tenant gid
-  tenant=$(gum choose "AmeriGlide" "IAI" --header "Install mesh agent for which fleet?" </dev/tty) || return 1
-  case "$tenant" in
-    IAI) gid="${MESH_GROUP_ID_IAI:-}" ;;
-    *)   gid="${MESH_GROUP_ID_AMERIGLIDE:-}" ;;
-  esac
-  if [[ -z "$gid" ]]; then echo >&2 "  ⚠  group id for $tenant not set in .env"; return 1; fi
-  echo "Set-ExecutionPolicy Bypass -Scope Process -Force; irm https://raw.githubusercontent.com/ameriglide/it-admin/main/scripts/setup-workstation.ps1 -OutFile \$env:TEMP\\setup-workstation.ps1; & \$env:TEMP\\setup-workstation.ps1 -Only meshagent -MeshCentralUrl '$url' -MeshGroupId '$gid'"
 }
 
 tailscale_key() {
@@ -369,7 +337,6 @@ LABELS=(
   "GCPW — reset user state (re-test first login)..."
   "Zoiper — install + configure..."
   "Tailscale — install + join (only)"
-  "Mesh agent — install (remote management, only)..."
   "Tailscale — join network (from .env)"
   "Generate new Tailscale key (SSH → headscale, saves to .env)..."
   "sage-amg — onboard new user..."
@@ -388,7 +355,6 @@ dispatch() {
     "GCPW — reset user state (re-test first login)...") reset_gcpw_user ;;
     "Set up workstation (apps + Tailscale + Zoiper)") install_apps ;;
     "Tailscale — install + join (only)")        install_tailscale ;;
-    "Mesh agent — install (remote management, only)...") install_meshagent ;;
     "Zoiper — install + configure...")             zoiper_setup ;;
     "sage-amg — onboard new user...")           sage_amg_onboard ;;
     "Server monitoring — install watchdog + heartbeat (+ Vector) on a sage-* server...") install_server_monitoring ;;

@@ -80,9 +80,7 @@ param(
     [string]$Brand = "AmeriGlide",
     [string]$MarketingUrl = "https://www.ameriglide.com",
     [string]$HeadscaleUrl,
-    [string[]]$Anchors = @(),
-    [string]$MeshCentralUrl,
-    [string]$MeshGroupId
+    [string[]]$Anchors = @()
 )
 
 $BrandLower = $Brand.ToLower()
@@ -109,7 +107,7 @@ if ((Should-Run "tailscale") -and -not $TailscaleAuthKey) {
 $ErrorActionPreference = "Stop"
 $ProgressPreference = "SilentlyContinue"
 # Stamped by pre-commit hook -- do not edit manually
-$Script:Revision = "210e6e2"
+$Script:Revision = "93ff16e"
 
 Write-Host "setup-workstation.ps1 rev $Script:Revision" -ForegroundColor DarkGray
 
@@ -242,44 +240,6 @@ if ($tsCmd) {
     Write-Warning "  Tailscale CLI not found. May require a reboot before auth."
 }
 Write-Host ""
-}
-
-# ---------------------------------------------------------------------------
-# MeshCentral agent (remote management). Tailnet-only server, self-signed cert.
-# Idempotent: skip if the Mesh Agent service already exists.
-# ---------------------------------------------------------------------------
-if (Should-Run "meshagent") {
-if ($MeshCentralUrl -and $MeshGroupId) {
-    Write-Host "MeshCentral agent..." -ForegroundColor Yellow
-    # Match the service by name explicitly (the MeshCentral agent registers as "Mesh Agent").
-    $existing = Get-Service -Name "Mesh Agent" -ErrorAction SilentlyContinue
-    if ($existing) {
-        Write-Host "  Already installed. Skipping." -ForegroundColor Green
-    } else {
-        try {
-            # Self-signed server cert: bypass validation for THIS download only.
-            $cb = [System.Net.ServicePointManager]::ServerCertificateValidationCallback
-            [System.Net.ServicePointManager]::ServerCertificateValidationCallback = { $true }
-            $exe = "$env:TEMP\meshagent.exe"
-            $url = "$MeshCentralUrl/meshagents?id=4&meshid=$MeshGroupId&installflags=0"
-            Invoke-WebRequest -Uri $url -OutFile $exe -UseBasicParsing
-            $p = Start-Process -FilePath $exe -ArgumentList "-fullinstall" -Wait -PassThru
-            if ($p.ExitCode -eq 0) {
-                Write-Host "  Mesh Agent installed." -ForegroundColor Green
-            } else {
-                Write-Warning "  Mesh Agent install failed (exit code $($p.ExitCode))."
-            }
-        } catch {
-            # Surface $url so a stale/invalid meshid token is diagnosable from the console.
-            Write-Warning "  Mesh Agent install skipped ($url): $($_.Exception.Message)"
-        } finally {
-            [System.Net.ServicePointManager]::ServerCertificateValidationCallback = $cb
-        }
-    }
-    Write-Host ""
-} elseif ($Only -contains "meshagent") {
-    Write-Warning "  -Only meshagent requires -MeshCentralUrl and -MeshGroupId."
-}
 }
 
 # ---------------------------------------------------------------------------
