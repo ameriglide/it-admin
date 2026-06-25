@@ -80,7 +80,8 @@ param(
     [string]$Brand = "AmeriGlide",
     [string]$MarketingUrl = "https://www.ameriglide.com",
     [string]$HeadscaleUrl,
-    [string[]]$Anchors = @()
+    [string[]]$Anchors = @(),
+    [string]$Action1AgentUrl
 )
 
 $BrandLower = $Brand.ToLower()
@@ -107,7 +108,7 @@ if ((Should-Run "tailscale") -and -not $TailscaleAuthKey) {
 $ErrorActionPreference = "Stop"
 $ProgressPreference = "SilentlyContinue"
 # Stamped by pre-commit hook -- do not edit manually
-$Script:Revision = "93ff16e"
+$Script:Revision = "a699138"
 
 Write-Host "setup-workstation.ps1 rev $Script:Revision" -ForegroundColor DarkGray
 
@@ -240,6 +241,38 @@ if ($tsCmd) {
     Write-Warning "  Tailscale CLI not found. May require a reboot before auth."
 }
 Write-Host ""
+}
+
+# ---------------------------------------------------------------------------
+# Action1 agent (cloud RMM: remote management + patch management). Cloud SaaS;
+# the agent phones home over the internet, so there is no tailnet dependency.
+# Idempotent: skip if the Action1 Agent service already exists.
+# ---------------------------------------------------------------------------
+if (Should-Run "action1") {
+if ($Action1AgentUrl) {
+    Write-Host "Action1 agent..." -ForegroundColor Yellow
+    $existing = Get-Service -Name "Action1 Agent" -ErrorAction SilentlyContinue
+    if ($existing) {
+        Write-Host "  Already installed. Skipping." -ForegroundColor Green
+    } else {
+        try {
+            $msi = "$env:TEMP\action1-agent.msi"
+            Invoke-WebRequest -Uri $Action1AgentUrl -OutFile $msi -UseBasicParsing
+            $p = Start-Process msiexec.exe -ArgumentList "/i `"$msi`" /quiet /qn" -Wait -PassThru
+            if ($p.ExitCode -eq 0 -or $p.ExitCode -eq 3010) {
+                Write-Host "  Action1 Agent installed." -ForegroundColor Green
+            } else {
+                Write-Warning "  Action1 Agent install failed (msiexec exit $($p.ExitCode))."
+            }
+        } catch {
+            # Surface the URL so a bad/expired installer URL is diagnosable from the console.
+            Write-Warning "  Action1 Agent install skipped ($Action1AgentUrl): $($_.Exception.Message)"
+        }
+    }
+    Write-Host ""
+} elseif ($Only -contains "action1") {
+    Write-Warning "  -Only action1 requires -Action1AgentUrl."
+}
 }
 
 # ---------------------------------------------------------------------------
