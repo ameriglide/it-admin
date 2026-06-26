@@ -182,6 +182,17 @@ install_action1() {
   echo "Set-ExecutionPolicy Bypass -Scope Process -Force; irm https://raw.githubusercontent.com/ameriglide/it-admin/main/scripts/setup-workstation.ps1 -OutFile \$env:TEMP\\setup-workstation.ps1; & \$env:TEMP\\setup-workstation.ps1 -Only action1 -Action1AgentUrl '$url'"
 }
 
+# Emit the one-liner that installs ONLY the AWS SSM Agent (hybrid), registering the
+# box as an SSM managed instance for remote command/debug. Activation from .env.
+# Account-level activation (not per-fleet), so no tenant chooser.
+install_ssm() {
+  local id="${SSM_ACTIVATION_ID:-}" code="${SSM_ACTIVATION_CODE:-}" region="${SSM_REGION:-}"
+  if [[ -z "$id" || -z "$code" || -z "$region" ]]; then
+    echo >&2 "  ⚠  SSM_ACTIVATION_ID/CODE/REGION not all set in .env"; return 1
+  fi
+  echo "Set-ExecutionPolicy Bypass -Scope Process -Force; irm https://raw.githubusercontent.com/ameriglide/it-admin/main/scripts/setup-workstation.ps1 -OutFile \$env:TEMP\\setup-workstation.ps1; & \$env:TEMP\\setup-workstation.ps1 -Only ssm -SsmActivationId '$id' -SsmActivationCode '$code' -SsmRegion '$region'"
+}
+
 tailscale_key() {
   local key="${TAILSCALE_AUTH_KEY:-}"
   if [[ -z "$key" ]]; then
@@ -368,6 +379,7 @@ LABELS=(
   "Zoiper — install + configure..."
   "Tailscale — install + join (only)"
   "Action1 agent — install (remote management, only)..."
+  "SSM agent — install (hybrid, remote debug, only)..."
   "Tailscale — join network (from .env)"
   "Generate new Tailscale key (SSH → headscale, saves to .env)..."
   "sage-amg — onboard new user..."
@@ -387,6 +399,7 @@ dispatch() {
     "Set up workstation (apps + Tailscale + Zoiper)") install_apps ;;
     "Tailscale — install + join (only)")        install_tailscale ;;
     "Action1 agent — install (remote management, only)...") install_action1 ;;
+    "SSM agent — install (hybrid, remote debug, only)...") install_ssm ;;
     "Zoiper — install + configure...")             zoiper_setup ;;
     "sage-amg — onboard new user...")           sage_amg_onboard ;;
     "Server monitoring — install watchdog + heartbeat (+ Vector) on a sage-* server...") install_server_monitoring ;;

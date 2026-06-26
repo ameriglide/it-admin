@@ -81,7 +81,10 @@ param(
     [string]$MarketingUrl = "https://www.ameriglide.com",
     [string]$HeadscaleUrl,
     [string[]]$Anchors = @(),
-    [string]$Action1AgentUrl
+    [string]$Action1AgentUrl,
+    [string]$SsmActivationId,
+    [string]$SsmActivationCode,
+    [string]$SsmRegion
 )
 
 $BrandLower = $Brand.ToLower()
@@ -108,7 +111,7 @@ if ((Should-Run "tailscale") -and -not $TailscaleAuthKey) {
 $ErrorActionPreference = "Stop"
 $ProgressPreference = "SilentlyContinue"
 # Stamped by pre-commit hook -- do not edit manually
-$Script:Revision = "a699138"
+$Script:Revision = "d1637b4"
 
 Write-Host "setup-workstation.ps1 rev $Script:Revision" -ForegroundColor DarkGray
 
@@ -272,6 +275,39 @@ if ($Action1AgentUrl) {
     Write-Host ""
 } elseif ($Only -contains "action1") {
     Write-Warning "  -Only action1 requires -Action1AgentUrl."
+}
+}
+
+# ---------------------------------------------------------------------------
+# AWS SSM Agent (hybrid) - SSM-style remote command/debug, reachable off-tailnet.
+# Idempotent: skip if the Amazon SSM Agent service already exists.
+# ---------------------------------------------------------------------------
+if (Should-Run "ssm") {
+if ($SsmActivationId -and $SsmActivationCode -and $SsmRegion) {
+    Write-Host "AWS SSM Agent (hybrid)..." -ForegroundColor Yellow
+    $existing = Get-Service -Name "AmazonSSMAgent" -ErrorAction SilentlyContinue
+    if ($existing) {
+        Write-Host "  Already installed. Skipping." -ForegroundColor Green
+    } else {
+        try {
+            $dir = "$env:TEMP\ssm-install"
+            New-Item -ItemType Directory -Force -Path $dir | Out-Null
+            $exe = "$dir\AmazonSSMAgentSetup.exe"
+            Invoke-WebRequest -Uri "https://amazon-ssm-$SsmRegion.s3.amazonaws.com/latest/windows_amd64/AmazonSSMAgentSetup.exe" -OutFile $exe -UseBasicParsing
+            $p = Start-Process -FilePath $exe -ArgumentList "/q","/log","$dir\install.log","CODE=$SsmActivationCode","ID=$SsmActivationId","REGION=$SsmRegion" -Wait -PassThru
+            if ($p.ExitCode -eq 0) {
+                Restart-Service AmazonSSMAgent -ErrorAction SilentlyContinue
+                Write-Host "  SSM Agent installed + registered ($SsmRegion)." -ForegroundColor Green
+            } else {
+                Write-Warning "  SSM Agent install failed (exit $($p.ExitCode)); see $dir\install.log"
+            }
+        } catch {
+            Write-Warning "  SSM Agent install skipped: $($_.Exception.Message)"
+        }
+    }
+    Write-Host ""
+} elseif ($Only -contains "ssm") {
+    Write-Warning "  -Only ssm requires -SsmActivationId, -SsmActivationCode, -SsmRegion."
 }
 }
 
