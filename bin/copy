@@ -175,28 +175,22 @@ _action1_url_for_domain() {
   esac
 }
 
-# Emit the one-liner that installs ONLY the Action1 agent for the chosen fleet.
-# Action1 is cloud SaaS; the agent phones home over the internet (no tailnet needed).
-install_action1() {
+# Emit the one-liner that installs the remote-management agents (Action1 + SSM) only,
+# for a box that already has the apps. Action1 URL is per-fleet (chooser); SSM activation
+# is account-level (.env). -Only action1,ssm runs just those two sections.
+install_remote_agents() {
   local tenant url
-  tenant=$(gum choose "AmeriGlide" "IAI" --header "Install Action1 agent for which fleet?" </dev/tty) || return 1
+  tenant=$(gum choose "AmeriGlide" "IAI" --header "Install Action1 + SSM agents for which fleet?" </dev/tty) || return 1
   case "$tenant" in
     IAI) url="${ACTION1_AGENT_URL_IAI:-}" ;;
     *)   url="${ACTION1_AGENT_URL_AMERIGLIDE:-}" ;;
   esac
   if [[ -z "$url" ]]; then echo >&2 "  ⚠  Action1 agent URL for $tenant not set in .env"; return 1; fi
-  echo "Set-ExecutionPolicy Bypass -Scope Process -Force; irm https://raw.githubusercontent.com/ameriglide/it-admin/main/scripts/setup-workstation.ps1 -OutFile \$env:TEMP\\setup-workstation.ps1; & \$env:TEMP\\setup-workstation.ps1 -Only action1 -Action1AgentUrl '$url'"
-}
-
-# Emit the one-liner that installs ONLY the AWS SSM Agent (hybrid), registering the
-# box as an SSM managed instance for remote command/debug. Activation from .env.
-# Account-level activation (not per-fleet), so no tenant chooser.
-install_ssm() {
   local id="${SSM_ACTIVATION_ID:-}" code="${SSM_ACTIVATION_CODE:-}" region="${SSM_REGION:-}"
   if [[ -z "$id" || -z "$code" || -z "$region" ]]; then
     echo >&2 "  ⚠  SSM_ACTIVATION_ID/CODE/REGION not all set in .env"; return 1
   fi
-  echo "Set-ExecutionPolicy Bypass -Scope Process -Force; irm https://raw.githubusercontent.com/ameriglide/it-admin/main/scripts/setup-workstation.ps1 -OutFile \$env:TEMP\\setup-workstation.ps1; & \$env:TEMP\\setup-workstation.ps1 -Only ssm -SsmActivationId '$id' -SsmActivationCode '$code' -SsmRegion '$region'"
+  echo "Set-ExecutionPolicy Bypass -Scope Process -Force; irm https://raw.githubusercontent.com/ameriglide/it-admin/main/scripts/setup-workstation.ps1 -OutFile \$env:TEMP\\setup-workstation.ps1; & \$env:TEMP\\setup-workstation.ps1 -Only action1,ssm -Action1AgentUrl '$url' -SsmActivationId '$id' -SsmActivationCode '$code' -SsmRegion '$region'"
 }
 
 tailscale_key() {
@@ -384,8 +378,7 @@ LABELS=(
   "GCPW — reset user state (re-test first login)..."
   "Zoiper — install + configure..."
   "Tailscale — install + join (only)"
-  "Action1 agent — install (remote management, only)..."
-  "SSM agent — install (hybrid, remote debug, only)..."
+  "Remote agents — install Action1 + SSM (only)..."
   "Tailscale — join network (from .env)"
   "Generate new Tailscale key (SSH → headscale, saves to .env)..."
   "sage-amg — onboard new user..."
@@ -404,8 +397,7 @@ dispatch() {
     "GCPW — reset user state (re-test first login)...") reset_gcpw_user ;;
     "Set up workstation (apps + Tailscale + Zoiper)") install_apps ;;
     "Tailscale — install + join (only)")        install_tailscale ;;
-    "Action1 agent — install (remote management, only)...") install_action1 ;;
-    "SSM agent — install (hybrid, remote debug, only)...") install_ssm ;;
+    "Remote agents — install Action1 + SSM (only)...") install_remote_agents ;;
     "Zoiper — install + configure...")             zoiper_setup ;;
     "sage-amg — onboard new user...")           sage_amg_onboard ;;
     "Server monitoring — install watchdog + heartbeat (+ Vector) on a sage-* server...") install_server_monitoring ;;
