@@ -54,10 +54,19 @@ aws ssm get-command-invocation --profile ag-aws-admin --region us-east-1 \
   --query '{Status:Status,Output:StandardOutputContent}' --output json
 ```
 
-## Mint / rotate an activation
+## Rotation (automated)
 
-Activations have a registration limit and expiry. To create a fresh one (IAM role
-`ssm-hybrid-role` trusts `ssm.amazonaws.com` + has `AmazonSSMManagedInstanceCore`):
+Activations expire after at most 30 days, so the one baked into onboarding must be
+refreshed regularly. **`bin/rotate-ssm-activation`** does this: mints a fresh activation,
+rewrites `SSM_ACTIVATION_ID/CODE` in this `.env` and every peer `.env` in `SSM_ROTATE_PEERS`
+(updated over ssh+sudo), then deletes the previous one. A **launchd job runs it on the 1st
+and 15th** of each month (`~/Library/LaunchAgents/com.ameriglide.ssm-rotate.plist`, logs to
+`~/Library/Logs/ssm-rotate.log`). Run it by hand anytime: `./bin/rotate-ssm-activation`.
+
+## Mint an activation manually
+
+To create one directly (the rotation script does this for you; IAM role `ssm-hybrid-role`
+trusts `ssm.amazonaws.com` + has `AmazonSSMManagedInstanceCore`):
 
 ```
 aws ssm create-activation --profile ag-aws-admin --region us-east-1 \
