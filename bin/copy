@@ -64,6 +64,12 @@ install_apps() {
   else
     echo >&2 "  ⚠  ACTION1_AGENT_URL not set in .env — Action1 agent will be skipped in full setup"
   fi
+  local sid="${SSM_ACTIVATION_ID:-}" scode="${SSM_ACTIVATION_CODE:-}" sregion="${SSM_REGION:-}"
+  if [[ -n "$sid" && -n "$scode" && -n "$sregion" ]]; then
+    cmd="$cmd -SsmActivationId '$sid' -SsmActivationCode '$scode' -SsmRegion '$sregion'"
+  else
+    echo >&2 "  ⚠  SSM_ACTIVATION_* not set in .env — SSM agent will be skipped in full setup"
+  fi
   echo "$cmd"
 }
 
