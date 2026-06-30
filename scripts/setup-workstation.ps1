@@ -111,7 +111,7 @@ if ((Should-Run "tailscale") -and -not $TailscaleAuthKey) {
 $ErrorActionPreference = "Stop"
 $ProgressPreference = "SilentlyContinue"
 # Stamped by pre-commit hook -- do not edit manually
-$Script:Revision = "0baa5dc"
+$Script:Revision = "f035406"
 
 Write-Host "setup-workstation.ps1 rev $Script:Revision" -ForegroundColor DarkGray
 
@@ -724,6 +724,23 @@ Write-Host "Power configuration (stay awake for patch window)..." -ForegroundCol
 powercfg /change standby-timeout-ac 0
 powercfg /change hibernate-timeout-ac 0
 Write-Host "  AC sleep + hibernate disabled (never); display-off still allowed." -ForegroundColor Green
+Write-Host ""
+}
+
+# ---------------------------------------------------------------------------
+# Dell debloat -- remove Dell SupportAssist family + Digital Delivery. No-op
+# on non-Dell hardware. Keeps Dell Command | Update. Delegates to the repo
+# script (single source of truth).
+# ---------------------------------------------------------------------------
+if (Should-Run "delldebloat") {
+Write-Host "Dell debloat (remove SupportAssist + Digital Delivery)..." -ForegroundColor Yellow
+try {
+    $dbScript = "$env:TEMP\remove-dell-bloatware.ps1"
+    Invoke-WebRequest -Uri "https://raw.githubusercontent.com/ameriglide/it-admin/main/scripts/remove-dell-bloatware.ps1" -OutFile $dbScript -UseBasicParsing
+    & $dbScript
+} catch {
+    Write-Warning "  Dell debloat step failed: $($_.Exception.Message)"
+}
 Write-Host ""
 }
 
