@@ -111,7 +111,7 @@ if ((Should-Run "tailscale") -and -not $TailscaleAuthKey) {
 $ErrorActionPreference = "Stop"
 $ProgressPreference = "SilentlyContinue"
 # Stamped by pre-commit hook -- do not edit manually
-$Script:Revision = "798c725"
+$Script:Revision = "0baa5dc"
 
 Write-Host "setup-workstation.ps1 rev $Script:Revision" -ForegroundColor DarkGray
 
@@ -712,6 +712,18 @@ Get-ChildItem 'Registry::HKEY_USERS' -ErrorAction SilentlyContinue | ForEach-Obj
 Write-Host "  Removed $removed existing Edge auto-launch entry(ies)."
 
 Write-Host "  Done." -ForegroundColor Green
+Write-Host ""
+}
+
+# ---------------------------------------------------------------------------
+# Power configuration -- keep the workstation awake for the overnight Action1
+# patch window. Disable sleep + hibernate on AC; display-off is still allowed.
+# ---------------------------------------------------------------------------
+if (Should-Run "powercfg") {
+Write-Host "Power configuration (stay awake for patch window)..." -ForegroundColor Yellow
+powercfg /change standby-timeout-ac 0
+powercfg /change hibernate-timeout-ac 0
+Write-Host "  AC sleep + hibernate disabled (never); display-off still allowed." -ForegroundColor Green
 Write-Host ""
 }
 
