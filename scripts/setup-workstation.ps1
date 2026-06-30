@@ -111,7 +111,7 @@ if ((Should-Run "tailscale") -and -not $TailscaleAuthKey) {
 $ErrorActionPreference = "Stop"
 $ProgressPreference = "SilentlyContinue"
 # Stamped by pre-commit hook -- do not edit manually
-$Script:Revision = "798c725"
+$Script:Revision = "8f9d21c"
 
 Write-Host "setup-workstation.ps1 rev $Script:Revision" -ForegroundColor DarkGray
 
@@ -712,6 +712,23 @@ Get-ChildItem 'Registry::HKEY_USERS' -ErrorAction SilentlyContinue | ForEach-Obj
 Write-Host "  Removed $removed existing Edge auto-launch entry(ies)."
 
 Write-Host "  Done." -ForegroundColor Green
+Write-Host ""
+}
+
+# ---------------------------------------------------------------------------
+# Windows Update policy (Action1-managed)
+# Suppress Windows' own auto-update + feature self-upgrade so Action1 owns
+# update timing. Delegates to set-windows-update-policy.ps1 (single source).
+# ---------------------------------------------------------------------------
+if (Should-Run "windowsupdate") {
+Write-Host "Windows Update policy (Action1-managed)..." -ForegroundColor Yellow
+try {
+    $wuScript = "$env:TEMP\set-windows-update-policy.ps1"
+    Invoke-WebRequest -Uri "https://raw.githubusercontent.com/ameriglide/it-admin/main/scripts/set-windows-update-policy.ps1" -OutFile $wuScript -UseBasicParsing
+    & $wuScript
+} catch {
+    Write-Warning "  Windows Update policy step failed: $($_.Exception.Message)"
+}
 Write-Host ""
 }
 
