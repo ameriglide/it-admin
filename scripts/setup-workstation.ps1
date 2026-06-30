@@ -111,7 +111,7 @@ if ((Should-Run "tailscale") -and -not $TailscaleAuthKey) {
 $ErrorActionPreference = "Stop"
 $ProgressPreference = "SilentlyContinue"
 # Stamped by pre-commit hook -- do not edit manually
-$Script:Revision = "d1637b4"
+$Script:Revision = "798c725"
 
 Write-Host "setup-workstation.ps1 rev $Script:Revision" -ForegroundColor DarkGray
 
@@ -667,6 +667,49 @@ if (Test-Path $chromePath) {
 # Clean up any prior ManagedBookmarks policy from earlier installs (it would
 # show as a "Bookmarks" folder on the bar and duplicate everything).
 Remove-ItemProperty -Path $chromePolicies -Name "ManagedBookmarks" -ErrorAction SilentlyContinue
+
+Write-Host "  Done." -ForegroundColor Green
+Write-Host ""
+}
+
+# ---------------------------------------------------------------------------
+# Microsoft Edge policies
+# ---------------------------------------------------------------------------
+# Edge auto-launches itself at Windows sign-in (its "startup boost" feature
+# registers a per-user MicrosoftEdgeAutoLaunch_* Run entry that runs msedge.exe
+# --win-session-start). After an Edge auto-update the first such launch shows a
+# "what's new" window, which reads as a random browser popping up at logon and
+# confuses users. We disable it here at provision time so a new machine never
+# does it; the Action1 "Run Script: Disable Edge Startup Auto-Launch" weekly
+# automation re-asserts the same policy fleet-wide (drift + already-onboarded
+# boxes). Machine policy below greys out the user-facing toggle.
+if (Should-Run "edge") {
+Write-Host "Microsoft Edge policies..." -ForegroundColor Yellow
+
+$edgePolicies = "HKLM:\SOFTWARE\Policies\Microsoft\Edge"
+if (-not (Test-Path $edgePolicies)) {
+    New-Item -Path $edgePolicies -Force | Out-Null
+}
+Set-ItemProperty -Path $edgePolicies -Name "StartupBoostEnabled"   -Value 0 -Type DWord
+Set-ItemProperty -Path $edgePolicies -Name "BackgroundModeEnabled" -Value 0 -Type DWord
+Write-Host "  Disabled startup boost + background mode (no auto-launch at sign-in)."
+
+# Strip the per-user sign-in auto-launch Run entry from every loaded user hive.
+# Takes effect at the user's next logon.
+$removed = 0
+Get-ChildItem 'Registry::HKEY_USERS' -ErrorAction SilentlyContinue | ForEach-Object {
+    $sid = $_.PSChildName
+    if ($sid -match '^S-1-5-21' -and $sid -notmatch '_Classes$') {
+        $run = "Registry::HKEY_USERS\$sid\Software\Microsoft\Windows\CurrentVersion\Run"
+        if (Test-Path $run) {
+            (Get-Item $run).Property | Where-Object { $_ -like 'MicrosoftEdgeAutoLaunch*' } | ForEach-Object {
+                Remove-ItemProperty -Path $run -Name $_ -Force
+                $removed++
+            }
+        }
+    }
+}
+Write-Host "  Removed $removed existing Edge auto-launch entry(ies)."
 
 Write-Host "  Done." -ForegroundColor Green
 Write-Host ""
