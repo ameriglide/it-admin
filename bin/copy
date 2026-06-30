@@ -190,7 +190,7 @@ install_remote_agents() {
   if [[ -z "$id" || -z "$code" || -z "$region" ]]; then
     echo >&2 "  ⚠  SSM_ACTIVATION_ID/CODE/REGION not all set in .env"; return 1
   fi
-  echo "Set-ExecutionPolicy Bypass -Scope Process -Force; irm https://raw.githubusercontent.com/ameriglide/it-admin/main/scripts/setup-workstation.ps1 -OutFile \$env:TEMP\\setup-workstation.ps1; & \$env:TEMP\\setup-workstation.ps1 -Only action1,ssm,edge,windowsupdate -Action1AgentUrl '$url' -SsmActivationId '$id' -SsmActivationCode '$code' -SsmRegion '$region'"
+  echo "Set-ExecutionPolicy Bypass -Scope Process -Force; irm https://raw.githubusercontent.com/ameriglide/it-admin/main/scripts/setup-workstation.ps1 -OutFile \$env:TEMP\\setup-workstation.ps1; & \$env:TEMP\\setup-workstation.ps1 -Only action1,ssm,edge -Action1AgentUrl '$url' -SsmActivationId '$id' -SsmActivationCode '$code' -SsmRegion '$region'"
 }
 
 tailscale_key() {
