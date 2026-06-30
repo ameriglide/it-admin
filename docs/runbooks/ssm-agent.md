@@ -36,10 +36,15 @@ The box needs internet (no tailnet required).
 
 Idempotent — re-running on a box that already has the `AmazonSSMAgent` service skips.
 
-**Mass-push via Action1:** Action1 has a fixed ~2-minute action timeout that kills a
-blocking install. To push to many boxes from Action1, use the **background scheduled-task
-wrapper** (stages the install script + launches it as a one-shot SYSTEM task, returns
-immediately) — not the plain blocking script.
+**Catch-up enroll via Action1** (for a box that has the Action1 agent but not the SSM
+agent): run the **"Install SSM Agent (hybrid)"** library script on it. That script is
+**parameterized** — it takes `ActivationId` / `ActivationCode` / `Region`; pass the current
+values straight from `.env` at run time, so **nothing secret is stored in Action1**.
+Easiest from here is `mcp__action1__run_script` with those three `script_params` (or the
+console's Run Script dialog). It registers within ~a minute (verify with the
+describe-instance-information call above). Note: the library script can only be **edited in
+the Action1 web console** — the `.env` API credential reads `/endpoints` fine but 403s on
+`/scripts`.
 
 ## Run a command on a box
 
@@ -56,8 +61,11 @@ aws ssm get-command-invocation --profile ag-aws-admin --region us-east-1 \
 
 ## Rotation (automated)
 
-Activations expire after at most 30 days, so the one baked into onboarding must be
-refreshed regularly. **`bin/rotate-ssm-activation`** does this: mints a fresh activation,
+Activations expire after at most 30 days, so the activation used to enroll new boxes must
+be refreshed regularly. Both consumers read it from `.env` at run time — `setup-workstation.ps1
+-Only ssm` and the parameterized Action1 "Install SSM Agent (hybrid)" script — so rotating
+`.env` is all that's needed; **no Action1 edit on rotation.** **`bin/rotate-ssm-activation`**
+does this: mints a fresh activation,
 rewrites `SSM_ACTIVATION_ID/CODE` in this `.env` and every peer `.env` in `SSM_ROTATE_PEERS`
 (updated over ssh+sudo), then deletes the previous one. A **launchd job runs it on the 1st
 and 15th** of each month (`~/Library/LaunchAgents/com.ameriglide.ssm-rotate.plist`, logs to
