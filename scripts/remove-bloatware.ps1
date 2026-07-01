@@ -202,4 +202,14 @@ foreach ($f in $prof.Folders) {
     }
 }
 
+# 7. Delete any leftover (now stopped + disabled) services so no stale service
+#    entries remain after the product's files/registration are gone.
+foreach ($name in $prof.Services) {
+    $svc = Get-Service -Name $name -ErrorAction SilentlyContinue
+    if ($svc) {
+        Write-Host "Deleting service: $($svc.Name)"
+        & sc.exe delete "$($svc.Name)" | Out-Null
+    }
+}
+
 Write-Host "Bloatware removal complete (profile: $Profile)." -ForegroundColor Green
