@@ -111,7 +111,7 @@ if ((Should-Run "tailscale") -and -not $TailscaleAuthKey) {
 $ErrorActionPreference = "Stop"
 $ProgressPreference = "SilentlyContinue"
 # Stamped by pre-commit hook -- do not edit manually
-$Script:Revision = "f035406"
+$Script:Revision = "bb5d7ef"
 
 Write-Host "setup-workstation.ps1 rev $Script:Revision" -ForegroundColor DarkGray
 
@@ -728,18 +728,22 @@ Write-Host ""
 }
 
 # ---------------------------------------------------------------------------
-# Dell debloat -- remove Dell SupportAssist family + Digital Delivery. No-op
-# on non-Dell hardware. Keeps Dell Command | Update. Delegates to the repo
-# script (single source of truth).
+# Debloat -- strip OEM junk (Dell SupportAssist / HP Wolf + utilities) and
+# Windows consumer Store apps. Each profile is a no-op where it does not
+# apply (dell on an HP box, hp on a Dell box), so all three run safely.
+# Keeps Dell Command | Update, HP hotkey/audio drivers, and Teams/OneDrive/
+# Copilot. Delegates to the repo engine (single source of truth).
 # ---------------------------------------------------------------------------
-if (Should-Run "delldebloat") {
-Write-Host "Dell debloat (remove SupportAssist + Digital Delivery)..." -ForegroundColor Yellow
+if (Should-Run "debloat") {
+Write-Host "Debloat (OEM junk + Windows consumer apps)..." -ForegroundColor Yellow
 try {
-    $dbScript = "$env:TEMP\remove-dell-bloatware.ps1"
-    Invoke-WebRequest -Uri "https://raw.githubusercontent.com/ameriglide/it-admin/main/scripts/remove-dell-bloatware.ps1" -OutFile $dbScript -UseBasicParsing
-    & $dbScript
+    $dbScript = "$env:TEMP\remove-bloatware.ps1"
+    Invoke-WebRequest -Uri "https://raw.githubusercontent.com/ameriglide/it-admin/main/scripts/remove-bloatware.ps1" -OutFile $dbScript -UseBasicParsing
+    & $dbScript -Profile generic
+    & $dbScript -Profile dell
+    & $dbScript -Profile hp
 } catch {
-    Write-Warning "  Dell debloat step failed: $($_.Exception.Message)"
+    Write-Warning "  Debloat step failed: $($_.Exception.Message)"
 }
 Write-Host ""
 }
