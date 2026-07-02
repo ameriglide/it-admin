@@ -22,7 +22,17 @@ zombie detector).
    fail, DWM crashes, RDP sessions get logged off (the AmeriGlide/IAI sage-iai
    outage, 2026-07-02). Thresholds live in `memory-watchdog.config.json`.
 4. **Vector host_metrics** — ships CPU / RAM / disk to a per-host Better Stack
-   telemetry source (the "Hosts" dashboard). Bundled for sage-iai / sage-server.
+   telemetry source. Each host has a `<server> host metrics` dashboard.
+5. **Telemetry chart alerts** — on each host's dashboard, threshold alerts on
+   the Vector metrics, routed to policy **114897**: **disk** (`C: free % < 10`)
+   and **memory** (`memory used % > 90`), both 5-min sustained. These are the
+   *graded early-warning* layer (trend-based); they complement the memory
+   heartbeat, which is the *floor* (fires even if a starved box stops shipping
+   telemetry). CPU is intentionally not alerted (RDP hosts spike constantly).
+   Unlike items 1-4 these are **not** installed by the onboarding one-liner —
+   they are created through the Better Stack MCP (or UI) against the host's
+   dashboard. To add for a new server: clone an existing `<server> host metrics`
+   dashboard (retarget its `source` preset), then add the two chart alerts.
 
 The Headscale **zombie detector** (AG-25) is a separate, fleet-wide backstop
 that runs on the headscale host, not per-server — see `ops/headscale/README.md`.
