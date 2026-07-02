@@ -208,9 +208,19 @@ tailscale_key() {
 
 new_tailscale_key() {
   echo >&2 "  Generating new key via headscale..."
-  local key
+  local key operator user_id
+  # headscale users' "name" matches the local macOS username (alan, michael),
+  # so the key gets attributed to whoever is actually running the tool
+  # instead of being hardcoded to one person.
+  operator="$(whoami)"
+  user_id=$(ssh root@headscale 'docker exec headscale headscale users list -o json' 2>/dev/null \
+    | jq -r --arg n "$operator" '.[] | select(.name==$n) | .id')
+  if [[ -z "$user_id" ]]; then
+    echo >&2 "  ⚠  No headscale user found matching local user '$operator'"
+    return 1
+  fi
   # 2160h = 90 days, so onboarding keys don't silently expire mid-rollout.
-  key=$(ssh root@headscale 'docker exec headscale headscale preauthkeys create --user 1 --reusable --expiration 2160h' 2>/dev/null)
+  key=$(ssh root@headscale "docker exec headscale headscale preauthkeys create --user $user_id --reusable --expiration 2160h" 2>/dev/null)
   if [[ -z "$key" ]]; then
     echo >&2 "  ⚠  Failed to generate key (SSH to headscale failed?)"
     return 1
