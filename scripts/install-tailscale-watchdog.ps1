@@ -13,7 +13,7 @@ param(
     [switch]$SkipVector
 )
 $ErrorActionPreference = 'Stop'
-$Script:Revision = "8200985"
+$Script:Revision = "a53c48d"
 
 if (-not $BetterStackApiToken) { throw "BetterStack API token required (-BetterStackApiToken or BETTERSTACK_UPTIME_TOKEN)." }
 
@@ -78,17 +78,50 @@ Copy-Item -Path (Get-RepoScript 'repair-tailscale-service-deps.ps1') -Destinatio
 # 4. Register the scheduled task.
 & (Get-RepoScript 'register-watchdog-task.ps1')
 
-# 5. Disable WPAD proxy auto-detect (AG-48). tailscaled runs as SYSTEM and these
+# 5. Provision or reuse the memory heartbeat, then install the memory watchdog.
+# This beats "memory-<server>" only while commit/memory is healthy and withholds
+# the beat when commit is exhausted, so a box that is still "up" and answering
+# pings but out of commit (allocations failing, DWM crashing, RDP sessions
+# logging off) still pages. The liveness heartbeat above cannot see that state.
+# Same escalation policy as tailnet-<server>.
+$memHbName   = "memory-$Server"
+$memList     = Invoke-RestMethod -Uri 'https://uptime.betterstack.com/api/v2/heartbeats' -Headers $headers
+$memExisting = $memList.data | Where-Object { $_.attributes.name -eq $memHbName } | Select-Object -First 1
+if ($memExisting) {
+    $memHbUrl = $memExisting.attributes.url
+    try {
+        $patch = @{ policy_id = $PolicyId } | ConvertTo-Json
+        Invoke-RestMethod -Uri "https://uptime.betterstack.com/api/v2/heartbeats/$($memExisting.id)" -Headers $headers -Method Patch -Body $patch -ContentType 'application/json' | Out-Null
+        Write-Host "Reusing heartbeat '$memHbName' (policy $PolicyId ensured)." -ForegroundColor Green
+    } catch {
+        Write-Warning "Reusing heartbeat '$memHbName', but failed to set policy $PolicyId : $($_.Exception.Message)"
+    }
+} else {
+    $memBody    = @{ name = $memHbName; period = 300; grace = 600; policy_id = $PolicyId } | ConvertTo-Json
+    $memCreated = Invoke-RestMethod -Uri 'https://uptime.betterstack.com/api/v2/heartbeats' -Headers $headers -Method Post -Body $memBody -ContentType 'application/json'
+    $memHbUrl   = $memCreated.data.attributes.url
+    Write-Host "Created heartbeat '$memHbName' (policy $PolicyId)." -ForegroundColor Green
+}
+$memConfig = [ordered]@{
+    heartbeatUrl = $memHbUrl
+    commitPctMax = 90    # withhold the beat at/above this % committed
+    availMbMin   = 512   # ...or below this many MB physical free
+}
+$memConfig | ConvertTo-Json | Set-Content -Path (Join-Path $BaseDir 'memory-watchdog.config.json')
+Copy-Item -Path (Get-RepoScript 'memory-watchdog.ps1') -Destination $BaseDir -Force
+& (Get-RepoScript 'register-memory-heartbeat-task.ps1')
+
+# 6. Disable WPAD proxy auto-detect (AG-48). tailscaled runs as SYSTEM and these
 # servers use no proxy; leaving WPAD on lets a brief outbound hiccup wedge
 # tailscaled for hours via a hung WinHTTP GetProxyForURL. Idempotent.
 & (Get-RepoScript 'disable-wpad-proxy.ps1')
 
-# 6. Sever the spurious WinHttpAutoProxySvc dependency so a reboot -- or a GPO/
+# 7. Sever the spurious WinHttpAutoProxySvc dependency so a reboot -- or a GPO/
 # baseline re-push -- can never wedge iphlpsvc + Tailscale (AG-46 follow-up).
 # Idempotent; the watchdog also re-applies this before any restart.
 & (Get-RepoScript 'repair-tailscale-service-deps.ps1')
 
-# 7. Bundle Vector host_metrics when a source token is supplied (AMG-403).
+# 8. Bundle Vector host_metrics when a source token is supplied (AMG-403).
 # install-vector-host-metrics.ps1 is idempotent (skips the binary if already
 # present), so passing a token for an already-onboarded box is safe. The ingest
 # host is required for delivery to work; without it, skip rather than install a

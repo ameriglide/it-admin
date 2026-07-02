@@ -12,7 +12,16 @@ zombie detector).
    scheduled task every 5 min.
 2. **Better Stack heartbeat** (`tailnet-<server>`) — alerts if the box stops
    beating (i.e. is actually down), routed through escalation policy **114897**.
-3. **Vector host_metrics** — ships CPU / RAM / disk to a per-host Better Stack
+3. **Memory heartbeat** (`memory-<server>`) — a second SYSTEM scheduled task
+   (`AG Memory Heartbeat`, every 5 min) running `scripts/memory-watchdog.ps1`.
+   It beats a Better Stack heartbeat **only while commit/memory is healthy**
+   (`% Committed Bytes In Use` < 90 **and** available > 512 MB) and withholds
+   the beat when commit is exhausted, so an incident fires (same policy
+   **114897**). This catches what the liveness heartbeat cannot: a box still
+   "up" and answering pings while its commit charge is exhausted — allocations
+   fail, DWM crashes, RDP sessions get logged off (the AmeriGlide/IAI sage-iai
+   outage, 2026-07-02). Thresholds live in `memory-watchdog.config.json`.
+4. **Vector host_metrics** — ships CPU / RAM / disk to a per-host Better Stack
    telemetry source (the "Hosts" dashboard). Bundled for sage-iai / sage-server.
 
 The Headscale **zombie detector** (AG-25) is a separate, fleet-wide backstop
@@ -65,6 +74,10 @@ cycle before doing the others (see AG-27).
 
 - **Heartbeat:** in Better Stack, `tailnet-<server>` exists and shows escalation
   policy **114897** (set by `install-tailscale-watchdog.ps1`).
+- **Memory heartbeat:** `memory-<server>` exists (policy **114897**, period 300s
+  / grace 600s) and is `up`; on the server, `Get-ScheduledTask "AG Memory
+  Heartbeat"` is `Ready` and `C:\ProgramData\ag-admin\memory-watchdog.log` shows
+  `healthy=True` cycles.
 - **Scheduled task:** on the server, `Get-ScheduledTask "AG Tailscale Watchdog"`
   is `Ready`; `C:\ProgramData\ag-admin\tailscale-watchdog.log` shows cycles.
 - **Metrics:** the `<server> (Vector)` source in Better Stack shows incoming
