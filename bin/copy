@@ -210,7 +210,7 @@ new_tailscale_key() {
   echo >&2 "  Generating new key via headscale..."
   local key
   # 2160h = 90 days, so onboarding keys don't silently expire mid-rollout.
-  key=$(ssh headscale 'docker exec headscale headscale preauthkeys create --user 1 --reusable --expiration 2160h' 2>/dev/null)
+  key=$(ssh root@headscale 'docker exec headscale headscale preauthkeys create --user 1 --reusable --expiration 2160h' 2>/dev/null)
   if [[ -z "$key" ]]; then
     echo >&2 "  ⚠  Failed to generate key (SSH to headscale failed?)"
     return 1
