@@ -378,6 +378,25 @@ install_server_monitoring() {
   echo "$cmd"
 }
 
+# Emit the remote PowerShell one-liner that installs the WorldShip update
+# monitor (heartbeat + daily scheduled task) on a shipping station.
+# See docs/runbooks/worldship-updates.md.
+install_worldship_monitor() {
+  local station
+  if [[ -z "${WORLDSHIP_STATIONS:-}" ]]; then echo >&2 "  ⚠  WORLDSHIP_STATIONS not set in .env"; return 1; fi
+  # shellcheck disable=SC2086  # intentional word-split of the space-separated station list
+  station=$(gum choose $WORLDSHIP_STATIONS --header "Install WorldShip update monitor on which station?" </dev/tty) || return 1
+  [[ -z "$station" ]] && return 1
+
+  local up="${BETTERSTACK_UPTIME_TOKEN:-}"
+  if [[ -z "$up" ]]; then
+    echo >&2 "  ⚠  BETTERSTACK_UPTIME_TOKEN not set in .env — using placeholder"
+    up="<paste-uptime-token-here>"
+  fi
+
+  echo "Set-ExecutionPolicy Bypass -Scope Process -Force; irm https://raw.githubusercontent.com/ameriglide/it-admin/main/scripts/install-worldship-monitor.ps1 -OutFile \$env:TEMP\\install-worldship-monitor.ps1; & \$env:TEMP\\install-worldship-monitor.ps1 -Station ${station} -BetterStackApiToken \"$up\""
+}
+
 # ---------------------------------------------------------------------------
 # Menu
 # ---------------------------------------------------------------------------
@@ -396,6 +415,7 @@ LABELS=(
   "Server monitoring — provision Better Stack Vector source (saves token to .env)..."
   "Server monitoring — provision shared Vector source for Linux hosts (saves token + ingest to .env)..."
   "Server monitoring — install Vector host metrics on a Linux host..."
+  "Server monitoring — install WorldShip update monitor on a shipping station..."
   "JumpCloud to GCPW — phase 1..."
   "JumpCloud to GCPW — phase 2"
 )
@@ -414,6 +434,7 @@ dispatch() {
     "Server monitoring — provision Better Stack Vector source (saves token to .env)...") provision_vector_source ;;
     "Server monitoring — provision shared Vector source for Linux hosts (saves token + ingest to .env)...") provision_linux_vector_source ;;
     "Server monitoring — install Vector host metrics on a Linux host...") install_linux_host_metrics ;;
+    "Server monitoring — install WorldShip update monitor on a shipping station...") install_worldship_monitor ;;
     "JumpCloud to GCPW — phase 1...")              migration_phase1 ;;
     "JumpCloud to GCPW — phase 2")               migration_phase2 ;;
     "Tailscale — join network (from .env)")            tailscale_key ;;
