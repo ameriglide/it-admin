@@ -53,13 +53,11 @@ if (Test-Path $syslogDir) {
     for ($i = 0; $i -lt $all.Count; $i++) {
         if ($all[$i] -like "*$attemptPattern*") { $lastAttempt = $i }
     }
-    if ($lastAttempt -ge 0) {
-        for ($i = $lastAttempt + 1; $i -lt $all.Count; $i++) {
-            foreach ($p in $failPatterns) {
-                if ($all[$i] -like "*$p*") { $failLine = $all[$i].Trim(); break }
-            }
-            if ($failLine) { break }
+    for ($i = $lastAttempt + 1; $i -lt $all.Count; $i++) {
+        foreach ($p in $failPatterns) {
+            if ($all[$i] -like "*$p*") { $failLine = $all[$i].Trim(); break }
         }
+        if ($failLine) { break }
     }
 }
 

@@ -21,8 +21,13 @@ New-Item -ItemType Directory -Path $BaseDir -Force | Out-Null
 # 1. Create or reuse the heartbeat. Token is team-scoped: do NOT pass team_id.
 $hbName  = "worldship-$Station"
 $headers = @{ Authorization = "Bearer $BetterStackApiToken" }
-$list     = Invoke-RestMethod -Uri 'https://uptime.betterstack.com/api/v2/heartbeats' -Headers $headers
-$existing = $list.data | Where-Object { $_.attributes.name -eq $hbName } | Select-Object -First 1
+$hbs = @(); $uri = 'https://uptime.betterstack.com/api/v2/heartbeats'
+while ($uri) {
+    $page = Invoke-RestMethod -Uri $uri -Headers $headers
+    $hbs += $page.data
+    $uri  = $page.pagination.next
+}
+$existing = $hbs | Where-Object { $_.attributes.name -eq $hbName } | Select-Object -First 1
 if ($existing) {
     $hbUrl = $existing.attributes.url
     try {

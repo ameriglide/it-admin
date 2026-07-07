@@ -27,7 +27,9 @@ Each station runs the `AG WorldShip Monitor` scheduled task (SYSTEM, daily
    clean ping with `version=...` in the body, or `<url>/fail` with
    `version=... error=<syslog line>`.
 
-Heartbeats: period 24 h, grace 6 h, escalation policy 114897.
+Heartbeats: period 24 h, grace 6 h, escalation policy 114897. A failure that
+lands mid-scan is reported by the next daily run (detection latency up to
+24 h).
 
 ## Alerts and what to do
 
@@ -48,7 +50,8 @@ the heartbeat, re-registers the task).
 ## Station notes
 
 - Station list lives in `.env` (`WORLDSHIP_STATIONS`), not in this public repo.
-- The RDU station's SSM agent was ConnectionLost when this was rolled out
-  (2026-07-07); its heartbeat was created **paused**. After fixing the agent
-  (see `docs/runbooks/ssm-agent.md`), run the installer there — it unpauses
-  the heartbeat automatically.
+- If a station is unreachable at rollout time (agent down, box off), you can
+  pre-create its heartbeat via the Uptime API with `"paused": true` so it does
+  not raise a dark-station incident before the monitor is installed. Running
+  the installer once the station is reachable unpauses the heartbeat
+  automatically.
