@@ -45,7 +45,10 @@ if (Test-Path $syslogDir) {
     $logFiles = Get-ChildItem -Path $syslogDir -Filter '*.log' -File |
         Where-Object { $_.LastWriteTime -ge $cutoff } | Sort-Object Name
     $all = @()
-    foreach ($f in $logFiles) { $all += @(Get-Content -Path $f.FullName -ErrorAction SilentlyContinue) }
+    foreach ($f in $logFiles) {
+        try { $all += @(Get-Content -Path $f.FullName -ErrorAction Stop) }
+        catch { Write-WsLog ("WARNING: could not read {0}: {1}" -f $f.Name, $_.Exception.Message) }
+    }
     $lastAttempt = -1
     for ($i = 0; $i -lt $all.Count; $i++) {
         if ($all[$i] -like "*$attemptPattern*") { $lastAttempt = $i }
