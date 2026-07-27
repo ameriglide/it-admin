@@ -30,12 +30,12 @@ export function buildListFilters(): object {
 }
 
 export async function orgDirectoryMemoryIds(email: string): Promise<string[]> {
-  const res = await fetch(`${BASE}/v2/memories/`, {
+  const res = await fetch(`${BASE}/v2/memories/search/`, {
     method: "POST",
     headers: authHeaders(),
-    body: JSON.stringify({ filters: buildListFilters(), page: 1, page_size: 100 }),
+    body: JSON.stringify({ query: email, filters: buildListFilters(), top_k: 25 }),
   });
-  if (!res.ok) throw new Error(`mem0 list failed ${res.status}: ${await res.text()}`);
+  if (!res.ok) throw new Error(`mem0 search failed ${res.status}: ${await res.text()}`);
   const body = await res.json();
   const items: Array<{ id: string; metadata?: Record<string, unknown> }> = Array.isArray(body)
     ? body
@@ -48,7 +48,7 @@ export async function deleteMemory(id: string): Promise<void> {
     method: "DELETE",
     headers: authHeaders(),
   });
-  if (!res.ok && res.status !== 204) {
+  if (!res.ok) {
     throw new Error(`mem0 delete failed ${res.status}: ${await res.text()}`);
   }
 }
