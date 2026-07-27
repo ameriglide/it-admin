@@ -3,9 +3,10 @@ import { phenixStep } from "./steps/phenix";
 import { twilioStep } from "./steps/twilio";
 import { amberjackStep } from "./steps/amberjack";
 import { googleStep } from "./steps/google";
+import { orgDirectoryStep } from "./steps/org-directory";
 import { closeAll } from "../onboard/lib/db";
 
-const steps: Step[] = [phenixStep, twilioStep, amberjackStep, googleStep];
+const steps: Step[] = [phenixStep, twilioStep, amberjackStep, googleStep, orgDirectoryStep];
 
 export async function run(
   ctx: OffboardContext,
