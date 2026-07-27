@@ -33,7 +33,7 @@ export async function orgDirectoryMemoryIds(email: string): Promise<string[]> {
   const res = await fetch(`${BASE}/v2/memories/search/`, {
     method: "POST",
     headers: authHeaders(),
-    body: JSON.stringify({ query: email, filters: buildListFilters(), top_k: 25 }),
+    body: JSON.stringify({ query: email, filters: buildListFilters(), top_k: 25 }), // top_k=25 is a completeness cap; exact-email query ranks the person first, so 25 is ample
   });
   if (!res.ok) throw new Error(`mem0 search failed ${res.status}: ${await res.text()}`);
   const body = await res.json();
@@ -48,7 +48,7 @@ export async function deleteMemory(id: string): Promise<void> {
     method: "DELETE",
     headers: authHeaders(),
   });
-  if (!res.ok) {
+  if (!res.ok && res.status !== 404) {
     throw new Error(`mem0 delete failed ${res.status}: ${await res.text()}`);
   }
 }
