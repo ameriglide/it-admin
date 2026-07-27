@@ -9,14 +9,36 @@
 set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 
-# Load .env (set -a auto-exports). .env is sourced, so every value must be
-# quoted (e.g. KEY="value with spaces") to be safe with spaces/special chars.
+# Load .env, then .env.local on top.
+#
+# .env may be a regular file (old style: sourced, so values must be quoted) or
+# the 1Password-mounted FIFO (unquoted values, re-served on every open, cannot
+# be sourced safely or written). .env.local is a plain gitignored file owned by
+# this tooling: machine-written values (rotated SSM activations, Tailscale
+# keys, Vector tokens) land there and override the 1Password mount.
+_read_env_stream() {
+  # Line-by-line reader for the FIFO / unquoted env format (see load-env.sh).
+  local line
+  while IFS= read -r line; do
+    case "$line" in \#*|'') continue ;; esac
+    case "$line" in *=*) export "${line%%=*}=${line#*=}" ;; esac
+  done < "$1"
+}
 load_env() {
-  [[ -f "$SCRIPT_DIR/.env" ]] || return 0
-  set -a
-  # shellcheck disable=SC1091
-  . "$SCRIPT_DIR/.env"
-  set +a
+  if [[ -f "$SCRIPT_DIR/.env" ]]; then
+    set -a
+    # shellcheck disable=SC1091
+    . "$SCRIPT_DIR/.env"
+    set +a
+  elif [[ -e "$SCRIPT_DIR/.env" ]]; then
+    _read_env_stream "$SCRIPT_DIR/.env"
+  fi
+  if [[ -f "$SCRIPT_DIR/.env.local" ]]; then
+    set -a
+    # shellcheck disable=SC1091
+    . "$SCRIPT_DIR/.env.local"
+    set +a
+  fi
 }
 load_env
 
@@ -178,9 +200,21 @@ _action1_url_for_domain() {
 # Emit the one-liner that installs the remote-management agents (Action1 + SSM) only,
 # for a box that already has the apps. Action1 URL is per-fleet (chooser); SSM activation
 # is account-level (.env). -Only action1,ssm runs just those two sections.
+# The Personal fleet gets SSM only (no Action1, no edge/powercfg/debloat) under its
+# own activation (SSM_ACTIVATION_*_PERSONAL — mint with rotate-ssm-activation --personal)
+# so personal boxes register with a distinct instance name in Fleet Manager.
 install_remote_agents() {
   local tenant url
-  tenant=$(gum choose "AmeriGlide" "IAI" --header "Install Action1 + SSM agents for which fleet?" </dev/tty) || return 1
+  tenant=$(gum choose "AmeriGlide" "IAI" "Personal (SSM only)" --header "Install remote agents for which fleet?" </dev/tty) || return 1
+  if [[ "$tenant" == "Personal (SSM only)" ]]; then
+    local pid="${SSM_ACTIVATION_ID_PERSONAL:-}" pcode="${SSM_ACTIVATION_CODE_PERSONAL:-}" region="${SSM_REGION:-}"
+    if [[ -z "$pid" || -z "$pcode" || -z "$region" ]]; then
+      echo >&2 "  ⚠  SSM_ACTIVATION_ID_PERSONAL/CODE_PERSONAL/SSM_REGION not all set in .env — run ./bin/rotate-ssm-activation --personal"
+      return 1
+    fi
+    echo "Set-ExecutionPolicy Bypass -Scope Process -Force; irm https://raw.githubusercontent.com/ameriglide/it-admin/main/scripts/setup-workstation.ps1 -OutFile \$env:TEMP\\setup-workstation.ps1; & \$env:TEMP\\setup-workstation.ps1 -Only ssm -SsmActivationId '$pid' -SsmActivationCode '$pcode' -SsmRegion '$region'"
+    return 0
+  fi
   case "$tenant" in
     IAI) url="${ACTION1_AGENT_URL_IAI:-}" ;;
     *)   url="${ACTION1_AGENT_URL_AMERIGLIDE:-}" ;;
@@ -225,16 +259,11 @@ new_tailscale_key() {
     echo >&2 "  ⚠  Failed to generate key (SSH to headscale failed?)"
     return 1
   fi
-  # Update .env
-  if grep -q '^TAILSCALE_AUTH_KEY=' "$SCRIPT_DIR/.env" 2>/dev/null; then
-    sed -i '' "s|^TAILSCALE_AUTH_KEY=.*|TAILSCALE_AUTH_KEY=$key|" "$SCRIPT_DIR/.env"
-  else
-    echo "TAILSCALE_AUTH_KEY=$key" >> "$SCRIPT_DIR/.env"
-  fi
+  _env_set TAILSCALE_AUTH_KEY "$key"
   # No effect on parent (we run in $(...) subshell), but documents intent.
-  # Visibility to other menu options happens via the .env re-source in the loop.
+  # Visibility to other menu options happens via the env re-load in the loop.
   export TAILSCALE_AUTH_KEY="$key"
-  echo >&2 "  Saved new key to .env (expires in 90 days)"
+  echo >&2 "  Saved new key to .env.local (expires in 90 days)"
   echo "$key"
 }
 
@@ -253,13 +282,14 @@ _anchors_var() { echo "TAILNET_ANCHORS_$(printf '%s' "$1" | tr 'a-z-' 'A-Z_')"; 
 _servers() { echo "${SERVERS_MONITORED:-}"; }              # Windows sage-* servers
 _linux_servers() { echo "${LINUX_SERVERS_MONITORED:-}"; }  # Linux droplets (native Vector)
 
-# Upsert KEY=VALUE in .env (replace in place or append).
+# Upsert KEY=VALUE in .env.local (the 1Password-mounted .env is read-only).
 _env_set() {
-  local var="$1" val="$2"
-  if grep -q "^${var}=" "$SCRIPT_DIR/.env" 2>/dev/null; then
-    sed -i '' "s|^${var}=.*|${var}=${val}|" "$SCRIPT_DIR/.env"
+  local var="$1" val="$2" f="$SCRIPT_DIR/.env.local"
+  [[ -f "$f" ]] || { : > "$f"; chmod 600 "$f"; }
+  if grep -q "^${var}=" "$f"; then
+    sed -i '' "s|^${var}=.*|${var}=${val}|" "$f"
   else
-    echo "${var}=${val}" >> "$SCRIPT_DIR/.env"
+    echo "${var}=${val}" >> "$f"
   fi
 }
 
@@ -407,7 +437,7 @@ LABELS=(
   "GCPW — reset user state (re-test first login)..."
   "Zoiper — install + configure..."
   "Tailscale — install + join (only)"
-  "Remote agents — install Action1 + SSM (only)..."
+  "Remote agents — install Action1 + SSM (work) / SSM only (personal)..."
   "Tailscale — join network (from .env)"
   "Generate new Tailscale key (SSH → headscale, saves to .env)..."
   "sage-amg — onboard new user..."
@@ -427,7 +457,7 @@ dispatch() {
     "GCPW — reset user state (re-test first login)...") reset_gcpw_user ;;
     "Set up workstation (apps + Tailscale + Zoiper)") install_apps ;;
     "Tailscale — install + join (only)")        install_tailscale ;;
-    "Remote agents — install Action1 + SSM (only)...") install_remote_agents ;;
+    "Remote agents — install Action1 + SSM (work) / SSM only (personal)...") install_remote_agents ;;
     "Zoiper — install + configure...")             zoiper_setup ;;
     "sage-amg — onboard new user...")           sage_amg_onboard ;;
     "Server monitoring — install watchdog + heartbeat (+ Vector) on a sage-* server...") install_server_monitoring ;;

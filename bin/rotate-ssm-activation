@@ -1,51 +1,74 @@
 #!/usr/bin/env bash
 #
-# Rotate the AWS SSM hybrid activation.
+# Rotate the AWS SSM hybrid activation(s).
 #
 # SSM hybrid activations expire after at most 30 days (AWS hard limit), so the
 # activation baked into workstation onboarding (setup-workstation.ps1 -Only ssm,
 # and the full "Set up workstation" run) must be refreshed ~monthly or new boxes
 # will install the agent but fail to register.
 #
-# This mints a fresh activation, rewrites SSM_ACTIVATION_ID/CODE in this checkout's
-# .env and in any peer .env files (SSM_ROTATE_PEERS), then deletes the previous
-# activation. Already-registered instances are unaffected by the old one's deletion.
+# This mints a fresh activation, upserts SSM_ACTIVATION_ID/CODE into this
+# checkout's .env.local (the 1Password-mounted .env is read-only) and rewrites
+# any peer .env files (SSM_ROTATE_PEERS), then deletes the previous activation.
+# Already-registered instances are unaffected by the old one's deletion.
 #
-# Usage: ./bin/rotate-ssm-activation
+# Two fleets:
+#   work     — SSM_ACTIVATION_ID/CODE, instance name amg-workstation, synced to peers
+#   personal — SSM_ACTIVATION_ID_PERSONAL/CODE_PERSONAL, instance name
+#              personal-machine, local .env only (peers don't get it)
+#
+# Usage: ./bin/rotate-ssm-activation             # work fleet (+ personal, if seeded)
+#        ./bin/rotate-ssm-activation --personal  # personal fleet only (also bootstraps
+#                                                #   the _PERSONAL vars into .env)
 set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 ENV_FILE="$SCRIPT_DIR/.env"
-[[ -f "$ENV_FILE" ]] || { echo "no .env at $ENV_FILE" >&2; exit 1; }
+ENV_LOCAL="$SCRIPT_DIR/.env.local"
+[[ -e "$ENV_FILE" || -f "$ENV_LOCAL" ]] || { echo "no .env or .env.local in $SCRIPT_DIR" >&2; exit 1; }
 
-set -a
-# shellcheck disable=SC1090
-. "$ENV_FILE"
-set +a
+# .env may be a regular file (old style: sourced, quoted values) or the
+# 1Password-mounted FIFO (unquoted values, read-only). Rotated activations are
+# written to .env.local (plain, gitignored), which loads second and overrides.
+if [[ -f "$ENV_FILE" ]]; then
+  set -a
+  # shellcheck disable=SC1090
+  . "$ENV_FILE"
+  set +a
+elif [[ -e "$ENV_FILE" ]]; then
+  while IFS= read -r _line; do
+    case "$_line" in \#*|'') continue ;; esac
+    case "$_line" in *=*) export "${_line%%=*}=${_line#*=}" ;; esac
+  done < "$ENV_FILE"
+  unset _line
+fi
+if [[ -f "$ENV_LOCAL" ]]; then
+  set -a
+  # shellcheck disable=SC1090
+  . "$ENV_LOCAL"
+  set +a
+fi
 
 PROFILE="${SSM_ROTATE_PROFILE:-ag-aws-admin}"   # AWS CLI profile with create/delete-activation
 ROLE="${SSM_ROTATE_ROLE:-ssm-hybrid-role}"      # IAM role trusting ssm.amazonaws.com
 REGION="${SSM_REGION:-us-east-1}"
-LIMIT="${SSM_ROTATE_LIMIT:-100}"
-OLD_ID="${SSM_ACTIVATION_ID:-}"
 
 # Max 30-day expiry (GNU date fallback for non-macOS schedulers).
 EXP=$(date -u -v+30d '+%Y-%m-%dT%H:%M:%S' 2>/dev/null || date -u -d '+30 days' '+%Y-%m-%dT%H:%M:%S')
 
-echo "Minting new SSM activation (role=$ROLE, limit=$LIMIT, region=$REGION)..."
-JSON=$(aws ssm create-activation --profile "$PROFILE" --region "$REGION" \
-  --iam-role "$ROLE" --registration-limit "$LIMIT" --expiration-date "$EXP" \
-  --default-instance-name amg-workstation \
-  --description "AmeriGlide workstations (rotated $(date -u +%Y-%m-%d))" --output json)
-NID=$(printf '%s' "$JSON" | jq -r '.ActivationId // empty')
-NCODE=$(printf '%s' "$JSON" | jq -r '.ActivationCode // empty')
-[[ -n "$NID" && -n "$NCODE" ]] || { echo "mint failed: $JSON" >&2; exit 1; }
-echo "  new activation $NID (expires $EXP)"
+# Upsert VAR=value into .env.local (the 1Password-mounted .env is read-only).
+_upsert_local() {
+  local var="$1" val="$2"
+  [[ -f "$ENV_LOCAL" ]] || { : > "$ENV_LOCAL"; chmod 600 "$ENV_LOCAL"; }
+  perl -i -pe "s{^${var}=.*}{${var}=${val}}" "$ENV_LOCAL"
+  grep -q "^${var}=" "$ENV_LOCAL" || echo "${var}=${val}" >> "$ENV_LOCAL"
+}
 
-# Rewrite SSM_ACTIVATION_ID/CODE in one .env (local path, or user@host:/path over ssh).
+# Rewrite VAR='value' pairs in a peer .env (local path, or user@host:/path over
+# ssh) — substitute-only, no append; peers still keep plain quoted .env files.
 # Brace-delimited perl so the base64 code's '/' chars don't clash.
-_update_env() {
-  local target="$1"
-  local prog="s{^SSM_ACTIVATION_ID=.*}{SSM_ACTIVATION_ID='$NID'}; s{^SSM_ACTIVATION_CODE=.*}{SSM_ACTIVATION_CODE='$NCODE'}"
+_update_peer() {
+  local target="$1" idvar="$2" nid="$3" codevar="$4" ncode="$5"
+  local prog="s{^${idvar}=.*}{${idvar}='$nid'}; s{^${codevar}=.*}{${codevar}='$ncode'}"
   if [[ "$target" == *:* ]]; then
     local hp="${target%%:*}" path="${target#*:}" user host
     user="${hp%@*}"; host="${hp#*@}"
@@ -55,16 +78,51 @@ _update_env() {
   fi
 }
 
-echo "Updating .env files..."
-_update_env "$ENV_FILE" && echo "  updated $ENV_FILE"
-# shellcheck disable=SC2086  # intentional word-split of the space-separated peer list
-for peer in ${SSM_ROTATE_PEERS:-}; do
-  if _update_env "$peer"; then echo "  updated $peer"; else echo "  WARN: could not update $peer (rotate it manually)" >&2; fi
-done
+# Mint a fresh activation for one fleet, save it, delete the fleet's old one.
+_rotate_fleet() {
+  local suffix="$1" name="$2" desc="$3" limit="$4" peers="$5"
+  local idvar="SSM_ACTIVATION_ID${suffix}" codevar="SSM_ACTIVATION_CODE${suffix}"
+  local old_id="${!idvar:-}"
 
-# Delete the previous activation (registered mi- instances keep working).
-if [[ -n "$OLD_ID" && "$OLD_ID" != "$NID" ]]; then
-  aws ssm delete-activation --profile "$PROFILE" --region "$REGION" --activation-id "$OLD_ID" \
-    && echo "Deleted previous activation $OLD_ID"
+  echo "Minting new SSM activation (name=$name, role=$ROLE, limit=$limit, region=$REGION)..."
+  local json nid ncode
+  json=$(aws ssm create-activation --profile "$PROFILE" --region "$REGION" \
+    --iam-role "$ROLE" --registration-limit "$limit" --expiration-date "$EXP" \
+    --default-instance-name "$name" \
+    --description "$desc (rotated $(date -u +%Y-%m-%d))" --output json)
+  nid=$(printf '%s' "$json" | jq -r '.ActivationId // empty')
+  ncode=$(printf '%s' "$json" | jq -r '.ActivationCode // empty')
+  [[ -n "$nid" && -n "$ncode" ]] || { echo "mint failed: $json" >&2; return 1; }
+  echo "  new activation $nid (expires $EXP)"
+
+  echo "Updating env files..."
+  _upsert_local "$idvar" "$nid"
+  _upsert_local "$codevar" "$ncode"
+  echo "  updated $ENV_LOCAL"
+  # shellcheck disable=SC2086  # intentional word-split of the space-separated peer list
+  for peer in $peers; do
+    if _update_peer "$peer" "$idvar" "$nid" "$codevar" "$ncode"; then echo "  updated $peer"
+    else echo "  WARN: could not update $peer (rotate it manually)" >&2; fi
+  done
+
+  # Delete the previous activation (registered mi- instances keep working).
+  if [[ -n "$old_id" && "$old_id" != "$nid" ]]; then
+    aws ssm delete-activation --profile "$PROFILE" --region "$REGION" --activation-id "$old_id" \
+      && echo "Deleted previous activation $old_id"
+  fi
+}
+
+if [[ "${1:-}" == "--personal" ]]; then
+  _rotate_fleet "_PERSONAL" personal-machine "Personal machines" \
+    "${SSM_ROTATE_LIMIT_PERSONAL:-5}" ""
+else
+  _rotate_fleet "" amg-workstation "AmeriGlide workstations" \
+    "${SSM_ROTATE_LIMIT:-100}" "${SSM_ROTATE_PEERS:-}"
+  # Keep the personal activation fresh too once it has been bootstrapped, so
+  # the monthly rotation covers both fleets.
+  if [[ -n "${SSM_ACTIVATION_ID_PERSONAL:-}" ]]; then
+    _rotate_fleet "_PERSONAL" personal-machine "Personal machines" \
+      "${SSM_ROTATE_LIMIT_PERSONAL:-5}" ""
+  fi
 fi
 echo "Done."
