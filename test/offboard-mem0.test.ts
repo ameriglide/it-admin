@@ -4,24 +4,24 @@ import { isOrgPersonForEmail, buildListFilters } from "../src/offboard/lib/mem0"
 const gws = (email: string) => ({ metadata: { source: "gws-directory", email } });
 
 test("isOrgPersonForEmail matches a gws-directory entry for the same email", () => {
-  expect(isOrgPersonForEmail(gws("jim.soffe@ameriglide.com"), "jim.soffe@ameriglide.com")).toBe(true);
+  expect(isOrgPersonForEmail(gws("test.user@example.com"), "test.user@example.com")).toBe(true);
 });
 
 test("isOrgPersonForEmail is case-insensitive on the email", () => {
-  expect(isOrgPersonForEmail(gws("Jim.Soffe@ameriglide.com"), "jim.soffe@ameriglide.com")).toBe(true);
+  expect(isOrgPersonForEmail(gws("Test.User@example.com"), "test.user@example.com")).toBe(true);
 });
 
 test("isOrgPersonForEmail rejects a different email", () => {
-  expect(isOrgPersonForEmail(gws("someone.else@ameriglide.com"), "jim.soffe@ameriglide.com")).toBe(false);
+  expect(isOrgPersonForEmail(gws("someone.else@ameriglide.com"), "test.user@example.com")).toBe(false);
 });
 
 test("isOrgPersonForEmail rejects a manual-source entry even with matching email", () => {
-  const manual = { metadata: { source: "manual", email: "jim.soffe@ameriglide.com" } };
-  expect(isOrgPersonForEmail(manual, "jim.soffe@ameriglide.com")).toBe(false);
+  const manual = { metadata: { source: "manual", email: "test.user@example.com" } };
+  expect(isOrgPersonForEmail(manual, "test.user@example.com")).toBe(false);
 });
 
 test("isOrgPersonForEmail rejects an entry with no metadata", () => {
-  expect(isOrgPersonForEmail({}, "jim.soffe@ameriglide.com")).toBe(false);
+  expect(isOrgPersonForEmail({}, "test.user@example.com")).toBe(false);
 });
 
 test("buildListFilters scopes to ameriglide-team / org-directory / gws-directory", () => {
