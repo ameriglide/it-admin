@@ -111,7 +111,7 @@ if ((Should-Run "tailscale") -and -not $TailscaleAuthKey) {
 $ErrorActionPreference = "Stop"
 $ProgressPreference = "SilentlyContinue"
 # Stamped by pre-commit hook -- do not edit manually
-$Script:Revision = "bb5d7ef"
+$Script:Revision = "eedd913"
 
 Write-Host "setup-workstation.ps1 rev $Script:Revision" -ForegroundColor DarkGray
 
@@ -333,9 +333,16 @@ try {
 
     # Resolve each watchdog script from a local sibling (repo clone) or download
     # it from the public it-admin repo (standalone %TEMP% delivery via the one-liner).
+    # repair-tailscale-service-deps.ps1 must land in $wdBase too: tailscale-watchdog.ps1
+    # looks for it there and silently skips the dependency self-heal when it is absent
+    # (Test-Path guard), so omitting it left every workstation unable to recover the
+    # AG-46 cascade the watchdog restart path exists to handle. Found 2026-08-06 on the
+    # RDU shipping PC, which had the WinHttpAutoProxySvc dependency live on both
+    # iphlpsvc and Tailscale.
     $rawBase = 'https://raw.githubusercontent.com/ameriglide/it-admin/main/scripts'
     $regScript = $null
-    foreach ($f in @('watchdog-core.ps1', 'tailscale-watchdog.ps1', 'register-watchdog-task.ps1')) {
+    $repairScript = $null
+    foreach ($f in @('watchdog-core.ps1', 'tailscale-watchdog.ps1', 'register-watchdog-task.ps1', 'repair-tailscale-service-deps.ps1')) {
         $dest = Join-Path $wdBase $f
         $sibling = Join-Path $PSScriptRoot $f
         if (Test-Path $sibling) {
@@ -343,9 +350,14 @@ try {
         } else {
             Invoke-WebRequest -Uri "$rawBase/$f" -OutFile $dest -UseBasicParsing
         }
-        if ($f -eq 'register-watchdog-task.ps1') { $regScript = $dest }
+        if ($f -eq 'register-watchdog-task.ps1')        { $regScript    = $dest }
+        if ($f -eq 'repair-tailscale-service-deps.ps1') { $repairScript = $dest }
     }
     & $regScript
+    # Sever the dependency now rather than waiting for the first wedge, matching what
+    # install-tailscale-watchdog.ps1 does for servers. Idempotent no-op on a clean box.
+    try { & $repairScript *> $null; Write-Host "  Ensured service deps (no WinHttpAutoProxySvc)." -ForegroundColor Green }
+    catch { Write-Warning "  Service dep repair failed: $($_.Exception.Message)" }
     Write-Host "  Watchdog installed (self-heal only)." -ForegroundColor Green
 } catch {
     Write-Warning "  Watchdog install skipped: $($_.Exception.Message)"
