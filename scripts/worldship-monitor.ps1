@@ -4,6 +4,15 @@
 # <heartbeatUrl>/fail when the latest update attempt failed (or WorldShip is
 # missing). Cadence comes from the 'AG WorldShip Monitor' scheduled task.
 # ASCII only.
+#
+# Also probes the station's critical accounting endpoint when
+# 'criticalEndpoint' (host:port) is configured. A shipping station's whole job
+# is order lookups against Sage, and that dependency fails SILENTLY: when the
+# tunnel to Sage is down, OzLINK's SELECTs return zero rows with no error, so
+# the operator sees "order not found" and hand-keys labels with blank
+# addresses. Nothing else on the box notices. The tailnet watchdog does not
+# catch it either -- its anchor probe is satisfied by ANY one anchor
+# responding, so a single dead peer reads as healthy (2026-08-06, AG).
 [CmdletBinding()]
 param([switch]$DryRun)
 
@@ -12,6 +21,24 @@ $ErrorActionPreference = 'Stop'
 $BaseDir    = Join-Path $env:ProgramData 'ag-admin'
 $ConfigPath = Join-Path $BaseDir 'worldship-monitor.config.json'
 $LogPath    = Join-Path $BaseDir 'worldship-monitor.log'
+
+function Test-TcpConnect {
+    # Hard-bounded TCP connect. Test-NetConnection has no usable timeout and can
+    # hang for minutes on a wedged stack, which would stall the scheduled task
+    # (same reasoning as watchdog-core.ps1, AG-47).
+    param([string]$ComputerName, [int]$Port, [int]$TimeoutMs = 3000)
+    $client = New-Object System.Net.Sockets.TcpClient
+    try {
+        $iar = $client.BeginConnect($ComputerName, $Port, $null, $null)
+        if (-not $iar.AsyncWaitHandle.WaitOne($TimeoutMs)) { return $false }
+        $client.EndConnect($iar)   # throws if the connection actually failed
+        return $true
+    } catch {
+        return $false
+    } finally {
+        $client.Close()
+    }
+}
 
 function Write-WsLog {
     param([string]$Message)
@@ -63,14 +90,33 @@ if (Test-Path $syslogDir) {
 
 if ($version -eq 'not-installed') { $failLine = 'WorldShipTD.exe not found' }
 
-# 3. Ping.
+# 3. Critical accounting endpoint (optional). Absent config = not probed, so
+# stations without the setting behave exactly as before.
+$sage = 'not-configured'
+if ($cfg.PSObject.Properties.Name -contains 'criticalEndpoint' -and $cfg.criticalEndpoint) {
+    $parts = ("$($cfg.criticalEndpoint)" -split ':')
+    if ($parts.Count -ne 2 -or -not ($parts[1] -as [int])) {
+        $sage = 'bad-config'
+        Write-WsLog ("WARNING: criticalEndpoint '{0}' is not host:port" -f $cfg.criticalEndpoint)
+    } elseif (Test-TcpConnect -ComputerName $parts[0] -Port ([int]$parts[1])) {
+        $sage = 'ok'
+    } else {
+        $sage = 'UNREACHABLE'
+        # Do not mask a WorldShip failure that is already the headline.
+        if (-not $failLine) {
+            $failLine = "critical endpoint $($cfg.criticalEndpoint) unreachable - order lookups will silently return no rows"
+        }
+    }
+}
+
+# 4. Ping.
 if ($failLine) {
     $short = $failLine.Substring(0, [Math]::Min(300, $failLine.Length))
-    $body  = "version=$version error=$short"
+    $body  = "version=$version sage=$sage error=$short"
     $url   = "$($cfg.heartbeatUrl)/fail"
     Write-WsLog ("UNHEALTHY: {0}" -f $body)
 } else {
-    $body = "version=$version"
+    $body = "version=$version sage=$sage"
     $url  = $cfg.heartbeatUrl
     Write-WsLog ("healthy: {0}" -f $body)
 }
