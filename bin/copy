@@ -409,7 +409,7 @@ install_server_monitoring() {
 }
 
 # Emit the remote PowerShell one-liner that installs the WorldShip update
-# monitor (heartbeat + daily scheduled task) on a shipping station.
+# monitor (heartbeat + repeating scheduled task) on a shipping station.
 # See docs/runbooks/worldship-updates.md.
 install_worldship_monitor() {
   local station
@@ -424,7 +424,18 @@ install_worldship_monitor() {
     up="<paste-uptime-token-here>"
   fi
 
-  echo "Set-ExecutionPolicy Bypass -Scope Process -Force; irm https://raw.githubusercontent.com/ameriglide/it-admin/main/scripts/install-worldship-monitor.ps1 -OutFile \$env:TEMP\\install-worldship-monitor.ps1; & \$env:TEMP\\install-worldship-monitor.ps1 -Station ${station} -BetterStackApiToken \"$up\""
+  # host:port of the Sage endpoint the station does order lookups against.
+  # Topology, so it stays in .env. Without it the monitor still installs, but
+  # a silent Sage outage stays invisible (see the 2026-08-06 RDU incident).
+  local ep="${SAGE_ODBC_ENDPOINT:-}"
+  local epArg=""
+  if [[ -n "$ep" ]]; then
+    epArg=" -CriticalEndpoint \"$ep\""
+  else
+    echo >&2 "  ⚠  SAGE_ODBC_ENDPOINT not set in .env — Sage reachability probe will be skipped"
+  fi
+
+  echo "Set-ExecutionPolicy Bypass -Scope Process -Force; irm https://raw.githubusercontent.com/ameriglide/it-admin/main/scripts/install-worldship-monitor.ps1 -OutFile \$env:TEMP\\install-worldship-monitor.ps1; & \$env:TEMP\\install-worldship-monitor.ps1 -Station ${station} -BetterStackApiToken \"$up\"${epArg}"
 }
 
 # ---------------------------------------------------------------------------
