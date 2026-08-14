@@ -11,33 +11,36 @@ SCRIPT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 
 # Load .env, then .env.local on top.
 #
-# .env may be a regular file (old style: sourced, so values must be quoted) or
-# the 1Password-mounted FIFO (unquoted values, re-served on every open, cannot
-# be sourced safely or written). .env.local is a plain gitignored file owned by
+# .env may be the 1Password-mounted FIFO (unquoted values, re-served on every
+# open) or a regular file holding either format — peers synced from the FIFO
+# get unquoted content, old-style files carry quoted values. Never source it:
+# sourcing an unquoted multi-word value executes its second word as a command
+# ("texas: command not found"). .env.local is a plain gitignored file owned by
 # this tooling: machine-written values (rotated SSM activations, Tailscale
 # keys, Vector tokens) land there and override the 1Password mount.
 _read_env_stream() {
-  # Line-by-line reader for the FIFO / unquoted env format (see load-env.sh).
-  local line
+  # Line-by-line KEY=VALUE reader (see load-env.sh). Values are taken
+  # literally — no expansion — with surrounding quotes stripped.
+  local line val
   while IFS= read -r line; do
     case "$line" in \#*|'') continue ;; esac
-    case "$line" in *=*) export "${line%%=*}=${line#*=}" ;; esac
+    case "$line" in
+      *=*)
+        val="${line#*=}"
+        case "$val" in
+          \"*\") val="${val#\"}"; val="${val%\"}" ;;
+          \'*\') val="${val#\'}"; val="${val%\'}" ;;
+        esac
+        export "${line%%=*}=$val" ;;
+    esac
   done < "$1"
 }
 load_env() {
-  if [[ -f "$SCRIPT_DIR/.env" ]]; then
-    set -a
-    # shellcheck disable=SC1091
-    . "$SCRIPT_DIR/.env"
-    set +a
-  elif [[ -e "$SCRIPT_DIR/.env" ]]; then
+  if [[ -e "$SCRIPT_DIR/.env" ]]; then
     _read_env_stream "$SCRIPT_DIR/.env"
   fi
   if [[ -f "$SCRIPT_DIR/.env.local" ]]; then
-    set -a
-    # shellcheck disable=SC1091
-    . "$SCRIPT_DIR/.env.local"
-    set +a
+    _read_env_stream "$SCRIPT_DIR/.env.local"
   fi
 }
 load_env
