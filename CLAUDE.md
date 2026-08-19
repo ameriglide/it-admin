@@ -79,8 +79,10 @@ pushing:
 rg -n '[^\x00-\x7F]' scripts/*.ps1   # should print nothing
 ```
 
-Use `rg`, not `grep -P`: macOS ships BSD grep, which has no `-P` and simply
-errors out, so the old `grep -P` form never actually ran here. `rg` also
+Use `rg`, not `grep -P`. `rg` is a required tool for this repo. Whether
+`grep -P` works depends entirely on which grep is installed -- a stock BSD grep
+has no `-P` at all, while some replacements (ugrep, GNU grep) do -- so the
+`grep -P` form is not portable across the team's machines. `rg` always is. `rg` also
 ignores a leading UTF-8 BOM, which is what you want — `scripts/deploy-gcpw.ps1`
 intentionally carries one (a BOM is how PowerShell 5.1 is told to read a file
 as UTF-8), and a byte-level check would flag it as a false positive.
