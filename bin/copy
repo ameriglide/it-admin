@@ -329,7 +329,7 @@ _ensure_vector_source() {
   printf '%s\t%s\n' "$token" "$ingest"
 }
 
-# Provision a Vector source for a Windows sage-* server and save its token to .env.
+# Provision a Vector source for a Windows sage-* server and save its token to .env.local.
 provision_vector_source() {
   local server
   if [[ -z "$(_servers)" ]]; then echo >&2 "  ⚠  SERVERS_MONITORED not set in .env"; return 1; fi
@@ -342,19 +342,19 @@ provision_vector_source() {
   local tvar ivar; tvar=$(_vector_token_var "$server"); ivar=$(_vector_ingest_var "$server")
   _env_set "$tvar" "$token"
   _env_set "$ivar" "$ingest"
-  echo >&2 "  Saved $tvar + $ivar to .env"
+  echo >&2 "  Saved $tvar + $ivar to .env.local"
   echo "$token"
 }
 
 # Provision the SINGLE shared "Host metrics (Vector)" source that all Linux hosts
 # ship to (host= tag distinguishes them), and save its token + ingest host to
-# .env. Idempotent: reuses the existing shared source.
+# .env.local. Idempotent: reuses the existing shared source.
 provision_linux_vector_source() {
   local out token ingest; out=$(_ensure_vector_source "Host metrics (Vector)") || return 1
   token=${out%%$'\t'*}; ingest=${out#*$'\t'}
   _env_set "VECTOR_SHARED_SOURCE_TOKEN" "$token"
   _env_set "VECTOR_SHARED_SOURCE_INGEST" "$ingest"
-  echo >&2 "  Saved VECTOR_SHARED_SOURCE_TOKEN + VECTOR_SHARED_SOURCE_INGEST to .env"
+  echo >&2 "  Saved VECTOR_SHARED_SOURCE_TOKEN + VECTOR_SHARED_SOURCE_INGEST to .env.local"
   echo "$token"
 }
 
@@ -453,11 +453,11 @@ LABELS=(
   "Tailscale — install + join (only)"
   "Remote agents — install Action1 + SSM (work) / SSM only (personal)..."
   "Tailscale — join network (from .env)"
-  "Generate new Tailscale key (SSH → headscale, saves to .env)..."
+  "Generate new Tailscale key (SSH → headscale, saves to .env.local)..."
   "sage-amg — onboard new user..."
   "Server monitoring — install watchdog + heartbeat (+ Vector) on a sage-* server..."
-  "Server monitoring — provision Better Stack Vector source (saves token to .env)..."
-  "Server monitoring — provision shared Vector source for Linux hosts (saves token + ingest to .env)..."
+  "Server monitoring — provision Better Stack Vector source (saves token to .env.local)..."
+  "Server monitoring — provision shared Vector source for Linux hosts (saves token + ingest to .env.local)..."
   "Server monitoring — install Vector host metrics on a Linux host..."
   "Server monitoring — install WorldShip update monitor on a shipping station..."
   "JumpCloud to GCPW — phase 1..."
@@ -475,14 +475,14 @@ dispatch() {
     "Zoiper — install + configure...")             zoiper_setup ;;
     "sage-amg — onboard new user...")           sage_amg_onboard ;;
     "Server monitoring — install watchdog + heartbeat (+ Vector) on a sage-* server...") install_server_monitoring ;;
-    "Server monitoring — provision Better Stack Vector source (saves token to .env)...") provision_vector_source ;;
-    "Server monitoring — provision shared Vector source for Linux hosts (saves token + ingest to .env)...") provision_linux_vector_source ;;
+    "Server monitoring — provision Better Stack Vector source (saves token to .env.local)...") provision_vector_source ;;
+    "Server monitoring — provision shared Vector source for Linux hosts (saves token + ingest to .env.local)...") provision_linux_vector_source ;;
     "Server monitoring — install Vector host metrics on a Linux host...") install_linux_host_metrics ;;
     "Server monitoring — install WorldShip update monitor on a shipping station...") install_worldship_monitor ;;
     "JumpCloud to GCPW — phase 1...")              migration_phase1 ;;
     "JumpCloud to GCPW — phase 2")               migration_phase2 ;;
     "Tailscale — join network (from .env)")            tailscale_key ;;
-    "Generate new Tailscale key (SSH → headscale, saves to .env)...") new_tailscale_key ;;
+    "Generate new Tailscale key (SSH → headscale, saves to .env.local)...") new_tailscale_key ;;
     *) return 1 ;;
   esac
 }
