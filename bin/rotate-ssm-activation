@@ -29,17 +29,42 @@ ENV_LOCAL="$SCRIPT_DIR/.env.local"
 # .env may be a regular file (old style: sourced, quoted values) or the
 # 1Password-mounted FIFO (unquoted values, read-only). Rotated activations are
 # written to .env.local (plain, gitignored), which loads second and overrides.
+_env_vars_read=0
 if [[ -f "$ENV_FILE" ]]; then
   set -a
   # shellcheck disable=SC1090
   . "$ENV_FILE"
   set +a
+  _env_vars_read=$(grep -cE '^[[:space:]]*[A-Za-z_][A-Za-z0-9_]*=' "$ENV_FILE" || true)
 elif [[ -e "$ENV_FILE" ]]; then
   while IFS= read -r _line; do
     case "$_line" in \#*|'') continue ;; esac
-    case "$_line" in *=*) export "${_line%%=*}=${_line#*=}" ;; esac
+    case "$_line" in *=*)
+      export "${_line%%=*}=${_line#*=}"
+      _env_vars_read=$((_env_vars_read + 1)) ;;
+    esac
   done < "$ENV_FILE"
   unset _line
+fi
+
+# The 1Password FIFO serves nothing when the app is locked or not running, and
+# because every value it carries has a silent fallback, the script would go on
+# to do a half-rotation and exit 0. That is exactly what happened on
+# 2026-08-01: SSM_ROTATE_PROFILE fell back to ag-aws-admin (which exists, so
+# the mint succeeded), SSM_ROTATE_PEERS was empty so the peer loop ran zero
+# times without printing its WARN, and SSM_ACTIVATION_ID was empty so the
+# previous activation was never deleted. Alan's box kept an expired activation
+# for three weeks and nothing reported an error. Refuse to run on an empty
+# config rather than guess which variable mattered.
+if [[ -e "$ENV_FILE" && "$_env_vars_read" -eq 0 ]]; then
+  {
+    echo "ERROR: $ENV_FILE yielded no variables."
+    echo "  If this is the 1Password-mounted FIFO, 1Password is locked or not running."
+    echo "  Refusing to rotate: the AWS profile, the peer list and the previous"
+    echo "  activation id would all be silently empty, producing a half-done"
+    echo "  rotation that still exits 0."
+  } >&2
+  exit 1
 fi
 if [[ -f "$ENV_LOCAL" ]]; then
   set -a
@@ -106,9 +131,15 @@ _rotate_fleet() {
   done
 
   # Delete the previous activation (registered mi- instances keep working).
+  # An empty old_id is legitimate on a first run and a leak on every other one,
+  # so say which happened instead of skipping in silence.
   if [[ -n "$old_id" && "$old_id" != "$nid" ]]; then
     aws ssm delete-activation --profile "$PROFILE" --region "$REGION" --activation-id "$old_id" \
       && echo "Deleted previous activation $old_id"
+  elif [[ -z "$old_id" ]]; then
+    echo "  WARN: no previous $idvar was set, so no old activation was deleted." >&2
+    echo "        Expected on a first run; otherwise check for orphans with" >&2
+    echo "        aws ssm describe-activations --profile $PROFILE --region $REGION" >&2
   fi
 }
 
