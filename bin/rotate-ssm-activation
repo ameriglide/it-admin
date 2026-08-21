@@ -23,7 +23,14 @@
 set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 ENV_FILE="$SCRIPT_DIR/.env"
-[[ -e "$ENV_FILE" ]] || { echo "no .env in $SCRIPT_DIR" >&2; exit 1; }
+# A workstation has .env; the scheduler (k8s CronJob) has no checkout and gets
+# its config from the pod environment instead. Missing .env is therefore fine
+# ONLY when the environment already carries the config -- which the 1Password
+# item guard below actually verifies, since that is the value whose absence is
+# dangerous.
+if [[ ! -e "$ENV_FILE" ]]; then
+  echo "no .env at $ENV_FILE - using the ambient environment" >&2
+fi
 
 # Where the rotated activations live. The mounted .env is a read-only FIFO and
 # 1Password Environments cannot be written outside the desktop app, so the
@@ -116,6 +123,18 @@ PROFILE="${SSM_ROTATE_PROFILE:-ag-aws-admin}"   # AWS CLI profile with create/de
 ROLE="${SSM_ROTATE_ROLE:-ssm-hybrid-role}"      # IAM role trusting ssm.amazonaws.com
 REGION="${SSM_REGION:-us-east-1}"
 
+# A workstation authenticates to AWS with a named profile from ~/.aws; a pod
+# has no ~/.aws and gets AWS_ACCESS_KEY_ID/AWS_SECRET_ACCESS_KEY from its
+# Secret. Passing --profile in that case fails with "profile not found", so
+# only pass it when there are no ambient credentials.
+AWS_AUTH=()
+if [[ -z "${AWS_ACCESS_KEY_ID:-}" ]]; then
+  AWS_AUTH=(--profile "$PROFILE")
+fi
+# bash 3.2 (macOS) errors on "${arr[@]}" for an empty array under `set -u`,
+# hence the +expansion guard at each use site.
+_aws() { aws ${AWS_AUTH[@]+"${AWS_AUTH[@]}"} "$@"; }
+
 # Max 30-day expiry (GNU date fallback for non-macOS schedulers).
 EXP=$(date -u -v+30d '+%Y-%m-%dT%H:%M:%S' 2>/dev/null || date -u -d '+30 days' '+%Y-%m-%dT%H:%M:%S')
 
@@ -154,7 +173,7 @@ _rotate_fleet() {
 
   echo "Minting new SSM activation (name=$name, role=$ROLE, limit=$limit, region=$REGION)..."
   local json nid ncode
-  json=$(aws ssm create-activation --profile "$PROFILE" --region "$REGION" \
+  json=$(_aws ssm create-activation --region "$REGION" \
     --iam-role "$ROLE" --registration-limit "$limit" --expiration-date "$EXP" \
     --default-instance-name "$name" \
     --description "$desc (rotated $(date -u +%Y-%m-%d))" --output json)
@@ -167,6 +186,11 @@ _rotate_fleet() {
   _upsert_item "$idvar" "$nid"
   _upsert_item "$codevar" "$ncode"
   echo "  updated 1Password $OP_RUNTIME_VAULT/$OP_RUNTIME_ITEM"
+  if [[ -z "${peers// /}" ]]; then
+    # Say so out loud. An empty peer list looked identical to a successful
+    # no-op on 2026-08-01 and hid a three-week failure; never skip in silence.
+    echo "  no peers configured for this fleet - nothing synced outside 1Password"
+  fi
   # shellcheck disable=SC2086  # intentional word-split of the space-separated peer list
   for peer in $peers; do
     if _update_peer "$peer" "$idvar" "$nid" "$codevar" "$ncode"; then echo "  updated $peer"
@@ -177,12 +201,12 @@ _rotate_fleet() {
   # An empty old_id is legitimate on a first run and a leak on every other one,
   # so say which happened instead of skipping in silence.
   if [[ -n "$old_id" && "$old_id" != "$nid" ]]; then
-    aws ssm delete-activation --profile "$PROFILE" --region "$REGION" --activation-id "$old_id" \
+    _aws ssm delete-activation --region "$REGION" --activation-id "$old_id" \
       && echo "Deleted previous activation $old_id"
   elif [[ -z "$old_id" ]]; then
     echo "  WARN: no previous $idvar was set, so no old activation was deleted." >&2
     echo "        Expected on a first run; otherwise check for orphans with" >&2
-    echo "        aws ssm describe-activations --profile $PROFILE --region $REGION" >&2
+    echo "        aws ssm describe-activations --region $REGION" >&2
   fi
 }
 
