@@ -1,0 +1,96 @@
+# SSM hybrid activation rotation, as a CronJob on do-nyc3-phenix.
+#
+# Replaces the LaunchAgent com.ameriglide.ssm-rotate, which ran in Michael's
+# GUI session on his laptop. That arrangement missed its 2026-08-15 run
+# entirely (machine asleep), and on 2026-08-01 ran with 1Password locked and
+# did a silent half-rotation. A laptop is the wrong host for a job that has to
+# happen.
+#
+# Schedule matches the LaunchAgent it replaces: 1st and 15th, 09:17 -> 09:00
+# America/New_York. db-archival in this cluster is the shape precedent -- a
+# monthly maintenance job on a stock image with its config in a Secret.
+#
+# Secrets are NOT in this file. Create them with ops/k8s/ssm-rotate/README.md.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: ssm-rotate
+---
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: ssm-rotate
+  namespace: ssm-rotate
+spec:
+  schedule: "0 9 1,15 * *"
+  timeZone: America/New_York
+  # A rotation that overlaps itself would mint two activations and delete the
+  # wrong one.
+  concurrencyPolicy: Forbid
+  # If the cluster was down at 09:00, still run when it comes back -- but only
+  # within the hour, so a long outage does not fire a stale rotation.
+  startingDeadlineSeconds: 3600
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    spec:
+      backoffLimit: 2
+      template:
+        spec:
+          restartPolicy: Never
+          containers:
+            - name: rotate
+              # aws is preinstalled and correct here, which is the fiddly part.
+              # jq and op are added at start: this runs twice a month, so ~20s
+              # of setup is cheaper than owning a base image and a registry.
+              image: amazon/aws-cli:2.27.49
+              command: ["/bin/bash", "-c"]
+              args:
+                - |
+                  set -euo pipefail
+                  OP_VERSION=2.38.1
+
+                  echo "installing jq and op ${OP_VERSION}..."
+                  dnf install -y -q jq unzip >/dev/null
+                  curl -fsS -o /tmp/op.zip \
+                    "https://cache.agilebits.com/dist/1P/op2/pkg/v${OP_VERSION}/op_linux_amd64_v${OP_VERSION}.zip"
+                  unzip -q -o /tmp/op.zip -d /usr/local/bin op
+                  chmod +x /usr/local/bin/op
+
+                  # ameriglide/it-admin is a public repo, and fetching scripts
+                  # from it by raw URL is already how workstation setup works.
+                  # Tracks main deliberately: a fix to the rotation should take
+                  # effect without redeploying this CronJob.
+                  echo "fetching bin/rotate-ssm-activation from main..."
+                  mkdir -p /work/bin
+                  curl -fsS -o /work/bin/rotate-ssm-activation \
+                    https://raw.githubusercontent.com/ameriglide/it-admin/main/bin/rotate-ssm-activation
+                  chmod +x /work/bin/rotate-ssm-activation
+
+                  # SCRIPT_DIR resolves to /work, which has no .env -- the
+                  # script says so and falls back to this environment.
+                  exec /work/bin/rotate-ssm-activation
+              envFrom:
+                # AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY,
+                # OP_SERVICE_ACCOUNT_TOKEN. See README.md.
+                - secretRef:
+                    name: ssm-rotate-secrets
+              env:
+                - name: SSM_REGION
+                  value: us-east-1
+                - name: SSM_ROTATE_ROLE
+                  value: ssm-hybrid-role
+                - name: SSM_ROTATE_LIMIT
+                  value: "100"
+                # No peers. A pod cannot ssh to a laptop, so nothing is synced
+                # outside 1Password -- the script says so on every run rather
+                # than skipping quietly. Anyone still reading a plain .env must
+                # move to the 1Password item.
+                - name: SSM_ROTATE_PEERS
+                  value: ""
+              resources:
+                requests:
+                  cpu: 50m
+                  memory: 128Mi
+                limits:
+                  memory: 512Mi
