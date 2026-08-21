@@ -9,15 +9,30 @@
 set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 
-# Load .env, then .env.local on top.
+# Load .env, then the 1Password runtime item on top.
 #
 # .env may be the 1Password-mounted FIFO (unquoted values, re-served on every
 # open) or a regular file holding either format — peers synced from the FIFO
 # get unquoted content, old-style files carry quoted values. Never source it:
 # sourcing an unquoted multi-word value executes its second word as a command
-# ("texas: command not found"). .env.local is a plain gitignored file owned by
-# this tooling: machine-written values (rotated SSM activations, Tailscale
-# keys, Vector tokens) land there and override the 1Password mount.
+# ("texas: command not found").
+#
+# Machine-written values (rotated SSM activations, Tailscale keys, Vector
+# tokens) live in the 1Password item below rather than in the read-only .env,
+# because 1Password Environments have no write path outside the desktop app.
+# They used to sit in a gitignored .env.local; that file silently shadowed
+# stale copies still present in the Environment, so which value you got
+# depended on which loader you went through.
+OP_ACCOUNT_AG="${OP_ACCOUNT_AG:-ameriglide.1password.com}"
+OP_RUNTIME_VAULT="${OP_RUNTIME_VAULT:-ag-admin-runtime}"
+OP_RUNTIME_ITEM="${OP_RUNTIME_ITEM:-ag-admin-runtime}"
+
+# Reading the item costs ~4s, which is far too slow to repeat on every menu
+# iteration. Load it once, then again only after something writes to it —
+# _env_set touches this marker to say so. The marker holds no secrets, and $$
+# is the parent's pid, which subshells inherit, so the path is stable.
+_OP_DIRTY="${TMPDIR:-/tmp}/.ag-admin-copy-$$.dirty"
+trap 'rm -f "$_OP_DIRTY"' EXIT
 _read_env_stream() {
   # Line-by-line KEY=VALUE reader (see load-env.sh). Values are taken
   # literally — no expansion — with surrounding quotes stripped.
@@ -35,13 +50,40 @@ _read_env_stream() {
     esac
   done < "$1"
 }
+# Export every field of the runtime item. Fields are concealed, so --reveal is
+# required; values go straight from op into the shell and are never printed.
+_load_op_runtime() {
+  command -v op >/dev/null 2>&1 || {
+    echo >&2 "  ⚠  op (1Password CLI) not found — machine-written values (SSM activation, Tailscale key, Vector tokens) will be missing"
+    return 0
+  }
+  local json
+  if ! json=$(op item get "$OP_RUNTIME_ITEM" --vault "$OP_RUNTIME_VAULT" \
+                --account "$OP_ACCOUNT_AG" --format json --reveal 2>/dev/null); then
+    echo >&2 "  ⚠  could not read 1Password item $OP_RUNTIME_VAULT/$OP_RUNTIME_ITEM — is 1Password unlocked?"
+    return 0
+  fi
+  local kv
+  # jq is not a dependency of this repo; python3 ships with macOS.
+  kv=$(printf '%s' "$json" | python3 -c '
+import json,sys
+for f in json.load(sys.stdin).get("fields", []):
+    name = f.get("label") or f.get("id")
+    if name == "notesPlain" or not f.get("value"):
+        continue
+    print(name + "=" + f["value"])
+') || return 0
+  while IFS= read -r line; do
+    [[ -z "$line" ]] && continue
+    export "${line%%=*}=${line#*=}"
+  done <<< "$kv"
+}
+
 load_env() {
   if [[ -e "$SCRIPT_DIR/.env" ]]; then
     _read_env_stream "$SCRIPT_DIR/.env"
   fi
-  if [[ -f "$SCRIPT_DIR/.env.local" ]]; then
-    _read_env_stream "$SCRIPT_DIR/.env.local"
-  fi
+  _load_op_runtime
 }
 load_env
 
@@ -266,7 +308,7 @@ new_tailscale_key() {
   # No effect on parent (we run in $(...) subshell), but documents intent.
   # Visibility to other menu options happens via the env re-load in the loop.
   export TAILSCALE_AUTH_KEY="$key"
-  echo >&2 "  Saved new key to .env.local (expires in 90 days)"
+  echo >&2 "  Saved new key to 1Password (expires in 90 days)"
   echo "$key"
 }
 
@@ -285,15 +327,24 @@ _anchors_var() { echo "TAILNET_ANCHORS_$(printf '%s' "$1" | tr 'a-z-' 'A-Z_')"; 
 _servers() { echo "${SERVERS_MONITORED:-}"; }              # Windows sage-* servers
 _linux_servers() { echo "${LINUX_SERVERS_MONITORED:-}"; }  # Linux droplets (native Vector)
 
-# Upsert KEY=VALUE in .env.local (the 1Password-mounted .env is read-only).
+# Upsert KEY=VALUE into the 1Password runtime item. The mounted .env is a
+# read-only FIFO and Environments cannot be written outside the desktop app,
+# so this item is the writable half of the pair.
+#
+# The value goes in argv, which is visible to other processes for the duration
+# of the call. That is an accepted trade here: this script's whole purpose is
+# putting these same secrets on the pasteboard with pbcopy, so argv is not the
+# weak link, and the template alternative needs a full read-modify-write of the
+# item for no real gain.
 _env_set() {
-  local var="$1" val="$2" f="$SCRIPT_DIR/.env.local"
-  [[ -f "$f" ]] || { : > "$f"; chmod 600 "$f"; }
-  if grep -q "^${var}=" "$f"; then
-    sed -i '' "s|^${var}=.*|${var}=${val}|" "$f"
-  else
-    echo "${var}=${val}" >> "$f"
+  local var="$1" val="$2"
+  if ! op item edit "$OP_RUNTIME_ITEM" --vault "$OP_RUNTIME_VAULT" \
+         --account "$OP_ACCOUNT_AG" "runtime.${var}[password]=${val}" >/dev/null 2>&1; then
+    echo >&2 "  ⚠  failed to write $var to $OP_RUNTIME_VAULT/$OP_RUNTIME_ITEM — is 1Password unlocked?"
+    return 1
   fi
+  export "$var=$val"   # visible for the rest of this subshell
+  : > "$_OP_DIRTY"     # tell the parent loop to re-read the item
 }
 
 # Create (or reuse) the "<name>" vector telemetry source. Echoes "token<TAB>ingest_host"
@@ -329,7 +380,7 @@ _ensure_vector_source() {
   printf '%s\t%s\n' "$token" "$ingest"
 }
 
-# Provision a Vector source for a Windows sage-* server and save its token to .env.local.
+# Provision a Vector source for a Windows sage-* server and save its token to the 1Password runtime item.
 provision_vector_source() {
   local server
   if [[ -z "$(_servers)" ]]; then echo >&2 "  ⚠  SERVERS_MONITORED not set in .env"; return 1; fi
@@ -342,19 +393,19 @@ provision_vector_source() {
   local tvar ivar; tvar=$(_vector_token_var "$server"); ivar=$(_vector_ingest_var "$server")
   _env_set "$tvar" "$token"
   _env_set "$ivar" "$ingest"
-  echo >&2 "  Saved $tvar + $ivar to .env.local"
+  echo >&2 "  Saved $tvar + $ivar to 1Password"
   echo "$token"
 }
 
 # Provision the SINGLE shared "Host metrics (Vector)" source that all Linux hosts
 # ship to (host= tag distinguishes them), and save its token + ingest host to
-# .env.local. Idempotent: reuses the existing shared source.
+# the 1Password runtime item. Idempotent: reuses the existing shared source.
 provision_linux_vector_source() {
   local out token ingest; out=$(_ensure_vector_source "Host metrics (Vector)") || return 1
   token=${out%%$'\t'*}; ingest=${out#*$'\t'}
   _env_set "VECTOR_SHARED_SOURCE_TOKEN" "$token"
   _env_set "VECTOR_SHARED_SOURCE_INGEST" "$ingest"
-  echo >&2 "  Saved VECTOR_SHARED_SOURCE_TOKEN + VECTOR_SHARED_SOURCE_INGEST to .env.local"
+  echo >&2 "  Saved VECTOR_SHARED_SOURCE_TOKEN + VECTOR_SHARED_SOURCE_INGEST to 1Password"
   echo "$token"
 }
 
@@ -453,11 +504,11 @@ LABELS=(
   "Tailscale — install + join (only)"
   "Remote agents — install Action1 + SSM (work) / SSM only (personal)..."
   "Tailscale — join network (from .env)"
-  "Generate new Tailscale key (SSH → headscale, saves to .env.local)..."
+  "Generate new Tailscale key (SSH → headscale, saves to 1Password)..."
   "sage-amg — onboard new user..."
   "Server monitoring — install watchdog + heartbeat (+ Vector) on a sage-* server..."
-  "Server monitoring — provision Better Stack Vector source (saves token to .env.local)..."
-  "Server monitoring — provision shared Vector source for Linux hosts (saves token + ingest to .env.local)..."
+  "Server monitoring — provision Better Stack Vector source (saves token to 1Password)..."
+  "Server monitoring — provision shared Vector source for Linux hosts (saves token + ingest to 1Password)..."
   "Server monitoring — install Vector host metrics on a Linux host..."
   "Server monitoring — install WorldShip update monitor on a shipping station..."
   "JumpCloud to GCPW — phase 1..."
@@ -475,14 +526,14 @@ dispatch() {
     "Zoiper — install + configure...")             zoiper_setup ;;
     "sage-amg — onboard new user...")           sage_amg_onboard ;;
     "Server monitoring — install watchdog + heartbeat (+ Vector) on a sage-* server...") install_server_monitoring ;;
-    "Server monitoring — provision Better Stack Vector source (saves token to .env.local)...") provision_vector_source ;;
-    "Server monitoring — provision shared Vector source for Linux hosts (saves token + ingest to .env.local)...") provision_linux_vector_source ;;
+    "Server monitoring — provision Better Stack Vector source (saves token to 1Password)...") provision_vector_source ;;
+    "Server monitoring — provision shared Vector source for Linux hosts (saves token + ingest to 1Password)...") provision_linux_vector_source ;;
     "Server monitoring — install Vector host metrics on a Linux host...") install_linux_host_metrics ;;
     "Server monitoring — install WorldShip update monitor on a shipping station...") install_worldship_monitor ;;
     "JumpCloud to GCPW — phase 1...")              migration_phase1 ;;
     "JumpCloud to GCPW — phase 2")               migration_phase2 ;;
     "Tailscale — join network (from .env)")            tailscale_key ;;
-    "Generate new Tailscale key (SSH → headscale, saves to .env.local)...") new_tailscale_key ;;
+    "Generate new Tailscale key (SSH → headscale, saves to 1Password)...") new_tailscale_key ;;
     *) return 1 ;;
   esac
 }
@@ -496,8 +547,10 @@ echo
 select choice in "${LABELS[@]}"; do
   [[ -z "$choice" ]] && { [[ "$REPLY" == q ]] && break; continue; }
 
-  # Re-load .env each iteration so option-9 (key rotation) is visible to option 8.
-  load_env
+  # .env is cheap to re-read; the 1Password item is not (~4s), so only re-read
+  # it when a previous iteration actually wrote something.
+  if [[ -e "$SCRIPT_DIR/.env" ]]; then _read_env_stream "$SCRIPT_DIR/.env"; fi
+  if [[ -e "$_OP_DIRTY" ]]; then rm -f "$_OP_DIRTY"; _load_op_runtime; fi
 
   payload=$(dispatch "$choice") || { echo; continue; }
 
