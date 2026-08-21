@@ -74,10 +74,32 @@ spec:
 
                   # SCRIPT_DIR resolves to /work, which has no .env -- the
                   # script says so and falls back to this environment.
-                  exec /work/bin/rotate-ssm-activation
+                  #
+                  # Beat the Better Stack heartbeat ONLY on success, so a
+                  # failure withholds the beat and raises an incident. Same
+                  # shape as memory-watchdog.ps1, which beats only while the
+                  # box is healthy. This is the piece that was missing when the
+                  # 2026-08-01 failure went unnoticed for three weeks.
+                  if /work/bin/rotate-ssm-activation; then
+                    if [ -n "${HEARTBEAT_URL:-}" ]; then
+                      curl -fsS -m 10 "$HEARTBEAT_URL" >/dev/null \
+                        && echo "heartbeat sent" \
+                        || echo "WARN: rotation succeeded but the heartbeat ping failed" >&2
+                    else
+                      echo "WARN: HEARTBEAT_URL is not set - no heartbeat sent" >&2
+                    fi
+                  else
+                    rc=$?
+                    echo "rotation FAILED (rc=$rc) - heartbeat deliberately not sent" >&2
+                    exit $rc
+                  fi
               envFrom:
                 # AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY,
-                # OP_SERVICE_ACCOUNT_TOKEN. See README.md.
+                # OP_SERVICE_ACCOUNT_TOKEN, HEARTBEAT_URL. See README.md.
+                #
+                # HEARTBEAT_URL is in the Secret rather than here on purpose:
+                # this repo is public, and anyone who could read that URL could
+                # beat the heartbeat and mask a real failure.
                 - secretRef:
                     name: ssm-rotate-secrets
               env:

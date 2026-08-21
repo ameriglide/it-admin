@@ -28,10 +28,17 @@ kubectl create namespace ssm-rotate --dry-run=client -o yaml | kubectl apply -f 
 kubectl create secret generic ssm-rotate-secrets -n ssm-rotate \
   --from-literal=AWS_ACCESS_KEY_ID="$AG_AWS_ADMIN_ACCESS_KEY_ID" \
   --from-literal=AWS_SECRET_ACCESS_KEY="$AG_AWS_ADMIN_SECRET_ACCESS_KEY" \
-  --from-literal=OP_SERVICE_ACCOUNT_TOKEN="$OP_TOKEN"
+  --from-literal=OP_SERVICE_ACCOUNT_TOKEN="$OP_TOKEN" \
+  --from-literal=HEARTBEAT_URL="<heartbeat url>"
 
 unset OP_TOKEN
 ```
+
+`HEARTBEAT_URL` is the Better Stack heartbeat for this job (id **484856**,
+"ssm-rotate (k8s CronJob)", escalation policy 114897). It is in the Secret and
+not in the manifest because this repo is public and anyone able to read that
+URL could beat the heartbeat and hide a real failure. Get it from Better Stack
+> Heartbeats, or from the `ssm-rotate-secrets` Secret.
 
 The service account `ag-admin-rotate` can reach the `ag-admin-runtime` vault
 and nothing else. Its own token lives in `IT`, which that token cannot read.
@@ -68,9 +75,6 @@ predecessor; the script warns when it has no previous id to delete.
   `.env` for `SSM_ACTIVATION_ID` will go stale. The script prints
   "no peers configured for this fleet" on every run rather than skipping in
   silence.
-- **No alerting.** A failed run shows up in `failedJobsHistoryLimit` and
-  nowhere else. Worth a Better Stack heartbeat, given the whole reason this
-  job moved is that its last failure went unnoticed for three weeks.
 - **Tracks `main`.** The script is fetched by raw URL at run time, so a broken
   commit on `main` breaks the next rotation. Deliberate — it also means a fix
   needs no redeploy — but pin a tag if that trade stops being worth it.
