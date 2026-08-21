@@ -64,15 +64,11 @@ _load_op_runtime() {
     return 0
   fi
   local kv
-  # jq is not a dependency of this repo; python3 ships with macOS.
-  kv=$(printf '%s' "$json" | python3 -c '
-import json,sys
-for f in json.load(sys.stdin).get("fields", []):
-    name = f.get("label") or f.get("id")
-    if name == "notesPlain" or not f.get("value"):
-        continue
-    print(name + "=" + f["value"])
-') || return 0
+  kv=$(printf '%s' "$json" | jq -r '
+    .fields[]
+    | select(.id != "notesPlain")
+    | select(.value != null and .value != "")
+    | ((.label // .id) + "=" + .value)') || return 0
   while IFS= read -r line; do
     [[ -z "$line" ]] && continue
     export "${line%%=*}=${line#*=}"
