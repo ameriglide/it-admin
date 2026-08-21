@@ -5,6 +5,7 @@
 // to the clipboard at each step. It reuses the in-memory Context (names, email,
 // SIP creds) so there is no second lookup, and gum for the prompts/pauses.
 
+import { runtimeValue } from "../lib/op-runtime";
 import { confirm, input } from "./lib/prompt";
 import type { Context } from "./types";
 
@@ -37,7 +38,18 @@ export async function walkWorkstationSetup(ctx: Context): Promise<void> {
   const domain = process.env.DOMAIN ?? "ameriglide.com";
   const brand = process.env.BRAND ?? "AmeriGlide";
   const marketingUrl = process.env.MARKETING_URL ?? "https://www.ameriglide.com";
-  const tsKey = process.env.TAILSCALE_AUTH_KEY ?? "<paste-key-here>";
+  // The live Tailscale key is in the 1Password runtime item, not .env: bin/copy
+  // rotates it there, and the copy still sitting in the Environment goes stale
+  // the moment it does. Fall back to .env, then to a placeholder.
+  const tsKey =
+    runtimeValue("TAILSCALE_AUTH_KEY") ??
+    process.env.TAILSCALE_AUTH_KEY ??
+    "<paste-key-here>";
+  if (tsKey === "<paste-key-here>") {
+    console.warn(
+      "  ⚠  No Tailscale auth key found in 1Password or .env — the one-liner will need one pasted in.",
+    );
+  }
   const zUser = process.env.ZOIPER_USERNAME;
   const zPass = process.env.ZOIPER_PASSWORD;
   const user = `${ctx.firstName}.${ctx.lastName}`.toLowerCase();
