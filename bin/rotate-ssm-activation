@@ -7,28 +7,37 @@
 # and the full "Set up workstation" run) must be refreshed ~monthly or new boxes
 # will install the agent but fail to register.
 #
-# This mints a fresh activation, upserts SSM_ACTIVATION_ID/CODE into this
-# checkout's .env.local (the 1Password-mounted .env is read-only) and rewrites
-# any peer .env files (SSM_ROTATE_PEERS), then deletes the previous activation.
+# This mints a fresh activation, upserts SSM_ACTIVATION_ID/CODE into the
+# 1Password item ag-admin-runtime (the mounted .env is a read-only FIFO) and
+# rewrites any peer .env files (SSM_ROTATE_PEERS), then deletes the previous one.
 # Already-registered instances are unaffected by the old one's deletion.
 #
 # Two fleets:
 #   work     — SSM_ACTIVATION_ID/CODE, instance name amg-workstation, synced to peers
 #   personal — SSM_ACTIVATION_ID_PERSONAL/CODE_PERSONAL, instance name
-#              personal-machine, local .env only (peers don't get it)
+#              personal-machine, 1Password only (peers do not get it)
 #
 # Usage: ./bin/rotate-ssm-activation             # work fleet (+ personal, if seeded)
 #        ./bin/rotate-ssm-activation --personal  # personal fleet only (also bootstraps
-#                                                #   the _PERSONAL vars into .env)
+#                                                #   the _PERSONAL vars into 1Password)
 set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 ENV_FILE="$SCRIPT_DIR/.env"
-ENV_LOCAL="$SCRIPT_DIR/.env.local"
-[[ -e "$ENV_FILE" || -f "$ENV_LOCAL" ]] || { echo "no .env or .env.local in $SCRIPT_DIR" >&2; exit 1; }
+[[ -e "$ENV_FILE" ]] || { echo "no .env in $SCRIPT_DIR" >&2; exit 1; }
+
+# Where the rotated activations live. The mounted .env is a read-only FIFO and
+# 1Password Environments cannot be written outside the desktop app, so the
+# writable half is an item in its own vault.
+#
+# Auth is whatever op already has: the desktop app when a human runs this, or
+# OP_SERVICE_ACCOUNT_TOKEN when the scheduler does. Passing --account is
+# harmless under both, so there is one invocation form rather than two.
+OP_ACCOUNT_AG="${OP_ACCOUNT_AG:-ameriglide.1password.com}"
+OP_RUNTIME_VAULT="${OP_RUNTIME_VAULT:-ag-admin-runtime}"
+OP_RUNTIME_ITEM="${OP_RUNTIME_ITEM:-ag-admin-runtime}"
 
 # .env may be a regular file (old style: sourced, quoted values) or the
-# 1Password-mounted FIFO (unquoted values, read-only). Rotated activations are
-# written to .env.local (plain, gitignored), which loads second and overrides.
+# 1Password-mounted FIFO (unquoted values, read-only).
 _env_vars_read=0
 if [[ -f "$ENV_FILE" ]]; then
   set -a
@@ -66,11 +75,41 @@ if [[ -e "$ENV_FILE" && "$_env_vars_read" -eq 0 ]]; then
   } >&2
   exit 1
 fi
-if [[ -f "$ENV_LOCAL" ]]; then
-  set -a
-  # shellcheck disable=SC1090
-  . "$ENV_LOCAL"
-  set +a
+# Load the runtime item on top of .env, so its live values beat any stale copy
+# of the same key still sitting in the Environment.
+_item_vars_read=0
+_load_op_runtime() {
+  command -v op >/dev/null 2>&1 || { echo "ERROR: op (1Password CLI) not found" >&2; return 1; }
+  local json kv
+  json=$(op item get "$OP_RUNTIME_ITEM" --vault "$OP_RUNTIME_VAULT" \
+           --account "$OP_ACCOUNT_AG" --format json --reveal 2>&1) || {
+    echo "ERROR: could not read $OP_RUNTIME_VAULT/$OP_RUNTIME_ITEM:" >&2
+    printf '  %s\n' "$json" >&2
+    return 1
+  }
+  kv=$(printf '%s' "$json" | jq -r '
+    .fields[]
+    | select(.id != "notesPlain")
+    | select(.value != null and .value != "")
+    | ((.label // .id) + "=" + .value)') || return 1
+  while IFS= read -r _l; do
+    [[ -z "$_l" ]] && continue
+    export "${_l%%=*}=${_l#*=}"
+    _item_vars_read=$((_item_vars_read + 1))
+  done <<< "$kv"
+  unset _l
+}
+_load_op_runtime || exit 1
+
+# Same reasoning as the .env guard above: the previous activation id now comes
+# from the item, so an empty read there is just as dangerous as an empty .env.
+if [[ "$_item_vars_read" -eq 0 ]]; then
+  {
+    echo "ERROR: $OP_RUNTIME_VAULT/$OP_RUNTIME_ITEM yielded no fields."
+    echo "  Refusing to rotate: the previous activation id would be empty, so the"
+    echo "  old activation would silently survive and peers would go unupdated."
+  } >&2
+  exit 1
 fi
 
 PROFILE="${SSM_ROTATE_PROFILE:-ag-aws-admin}"   # AWS CLI profile with create/delete-activation
@@ -80,12 +119,16 @@ REGION="${SSM_REGION:-us-east-1}"
 # Max 30-day expiry (GNU date fallback for non-macOS schedulers).
 EXP=$(date -u -v+30d '+%Y-%m-%dT%H:%M:%S' 2>/dev/null || date -u -d '+30 days' '+%Y-%m-%dT%H:%M:%S')
 
-# Upsert VAR=value into .env.local (the 1Password-mounted .env is read-only).
-_upsert_local() {
+# Upsert VAR=value into the 1Password runtime item. `runtime` is the section
+# id; [password] makes the field concealed. The value passes through argv,
+# which is visible to other processes on the box for the duration of the call
+# -- accepted because op item edit --template requires a full read-modify-write
+# of the item, and because the same value is about to be written to a peer .env
+# over ssh anyway.
+_upsert_item() {
   local var="$1" val="$2"
-  [[ -f "$ENV_LOCAL" ]] || { : > "$ENV_LOCAL"; chmod 600 "$ENV_LOCAL"; }
-  perl -i -pe "s{^${var}=.*}{${var}=${val}}" "$ENV_LOCAL"
-  grep -q "^${var}=" "$ENV_LOCAL" || echo "${var}=${val}" >> "$ENV_LOCAL"
+  op item edit "$OP_RUNTIME_ITEM" --vault "$OP_RUNTIME_VAULT" \
+    --account "$OP_ACCOUNT_AG" "runtime.${var}[password]=${val}" >/dev/null
 }
 
 # Rewrite VAR='value' pairs in a peer .env (local path, or user@host:/path over
@@ -120,10 +163,10 @@ _rotate_fleet() {
   [[ -n "$nid" && -n "$ncode" ]] || { echo "mint failed: $json" >&2; return 1; }
   echo "  new activation $nid (expires $EXP)"
 
-  echo "Updating env files..."
-  _upsert_local "$idvar" "$nid"
-  _upsert_local "$codevar" "$ncode"
-  echo "  updated $ENV_LOCAL"
+  echo "Updating stored activation..."
+  _upsert_item "$idvar" "$nid"
+  _upsert_item "$codevar" "$ncode"
+  echo "  updated 1Password $OP_RUNTIME_VAULT/$OP_RUNTIME_ITEM"
   # shellcheck disable=SC2086  # intentional word-split of the space-separated peer list
   for peer in $peers; do
     if _update_peer "$peer" "$idvar" "$nid" "$codevar" "$ncode"; then echo "  updated $peer"
