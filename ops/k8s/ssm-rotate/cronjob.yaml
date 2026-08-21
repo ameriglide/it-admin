@@ -43,6 +43,11 @@ spec:
               # aws is preinstalled and correct here, which is the fiddly part.
               # jq and op are added at start: this runs twice a month, so ~20s
               # of setup is cheaper than owning a base image and a registry.
+              #
+              # This image is Amazon Linux 2 and is more stripped than it looks:
+              # it has yum, rpm, curl and bash, but NO dnf, tar, gzip, unzip,
+              # jq or python3. Hence yum, and hence installing unzip before the
+              # op zip can be opened.
               image: amazon/aws-cli:2.27.49
               command: ["/bin/bash", "-c"]
               args:
@@ -51,7 +56,7 @@ spec:
                   OP_VERSION=2.38.1
 
                   echo "installing jq and op ${OP_VERSION}..."
-                  dnf install -y -q jq unzip >/dev/null
+                  yum install -y -q jq unzip >/dev/null 2>&1
                   curl -fsS -o /tmp/op.zip \
                     "https://cache.agilebits.com/dist/1P/op2/pkg/v${OP_VERSION}/op_linux_amd64_v${OP_VERSION}.zip"
                   unzip -q -o /tmp/op.zip -d /usr/local/bin op
