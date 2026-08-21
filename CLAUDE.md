@@ -63,9 +63,26 @@ bun test            # runs the *.test.ts suites under test/
 
 Environment is loaded by `source ~/Projects/ag-admin/load-env.sh` (or, inside
 `bin/copy`, by its own reader). Do **not** plain-`source` `.env` — see the
-mem0 note on how that file is mounted and why sourcing it breaks. Machine-written
-values belong in the gitignored `.env.local`, which loads after `.env` as an
-override.
+mem0 note on how that file is mounted and why sourcing it breaks.
+
+`.env` is a read-only 1Password Environment mount and holds hand-authored
+config only. **Machine-written values — rotated SSM activations, Tailscale
+keys, Vector tokens — are not in it.** They live in the 1Password item
+`ag-admin-runtime`, in a vault of the same name, because Environments have no
+write path outside the desktop app. `bin/copy` and `bin/rotate-ssm-activation`
+read and write that item; TypeScript entrypoints use `src/lib/op-runtime.ts`.
+Reading it costs several seconds, so fetch the one field you need rather than
+loading it eagerly:
+
+```bash
+op item get ag-admin-runtime --vault ag-admin-runtime \
+   --account ameriglide.1password.com --fields label=SSM_ACTIVATION_ID --reveal
+```
+
+There is no `.env.local`. It existed until 2026-08-21 as the writable half of
+the pair, and was removed because it silently shadowed stale copies of the same
+keys still sitting in the Environment — which value you got depended on which
+loader you went through. Do not reintroduce it.
 
 ## PowerShell
 
