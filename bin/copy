@@ -50,35 +50,87 @@ _read_env_stream() {
     esac
   done < "$1"
 }
+# The machine-written values: rotated SSM activations, the Tailscale auth key,
+# and the Vector source tokens/ingest hosts. The 1Password *item* is the sole
+# authority for these — rotate-ssm-activation and _env_set write there, and
+# nothing can write the mounted .env, a read-only FIFO served from a 1Password
+# Environment that only the desktop app can edit.
+#
+# Stale copies of some of them are still sitting in that Environment. On
+# 2026-08-28 a workstation install died with MSI 1603 because .env still held
+# the activation id from before the 2026-08-21 rotation: op could not be read,
+# the loader warned to stderr and carried on, and copy handed over a one-liner
+# naming an activation AWS had already deleted. Pasting a dead activation into
+# a remote PowerShell is strictly worse than getting no one-liner at all, so
+# these keys are scrubbed before the item is read. Whatever op supplies is
+# used; anything op does not supply stays unset, and the entry refuses.
+#
+# SSM_REGION and SSM_ROTATE_PEERS are deliberately NOT in this list: they are
+# static config that legitimately lives in .env, and no machine writes them.
+_MACHINE_WRITTEN_KEYS=(
+  SSM_ACTIVATION_ID SSM_ACTIVATION_CODE
+  SSM_ACTIVATION_ID_PERSONAL SSM_ACTIVATION_CODE_PERSONAL
+  TAILSCALE_AUTH_KEY
+)
+_scrub_machine_written() {
+  local k
+  for k in "${_MACHINE_WRITTEN_KEYS[@]}"; do unset "$k"; done
+  # Vector source vars are per-host (VECTOR_SOURCE_TOKEN_SAGE_AMG, ...), so
+  # they are matched by prefix rather than enumerated.
+  while IFS= read -r k; do
+    [[ -n "$k" ]] && unset "$k"
+  done < <(compgen -v | grep -E '^VECTOR_(SOURCE_(TOKEN|INGEST)|SHARED_SOURCE)_' || true)
+}
+
 # Export every field of the runtime item. Fields are concealed, so --reveal is
 # required; values go straight from op into the shell and are never printed.
+# A read failure is reported once, here; the menu entries then refuse on their
+# own because the values they need are absent rather than stale.
+_OP_RUNTIME_OK=0
 _load_op_runtime() {
-  command -v op >/dev/null 2>&1 || {
-    echo >&2 "  ⚠  op (1Password CLI) not found — machine-written values (SSM activation, Tailscale key, Vector tokens) will be missing"
+  _OP_RUNTIME_OK=0
+  if ! command -v op >/dev/null 2>&1; then
+    echo >&2 "  ✗  op (1Password CLI) not found — SSM activations, Tailscale key and Vector tokens are unavailable"
     return 0
-  }
+  fi
   local json
   if ! json=$(op item get "$OP_RUNTIME_ITEM" --vault "$OP_RUNTIME_VAULT" \
                 --account "$OP_ACCOUNT_AG" --format json --reveal 2>/dev/null); then
-    echo >&2 "  ⚠  could not read 1Password item $OP_RUNTIME_VAULT/$OP_RUNTIME_ITEM — is 1Password unlocked?"
+    echo >&2 "  ✗  could not read 1Password item $OP_RUNTIME_VAULT/$OP_RUNTIME_ITEM — is 1Password unlocked?"
     return 0
   fi
   local kv
-  kv=$(printf '%s' "$json" | jq -r '
+  if ! kv=$(printf '%s' "$json" | jq -r '
     .fields[]
     | select(.id != "notesPlain")
     | select(.value != null and .value != "")
-    | ((.label // .id) + "=" + .value)') || return 0
+    | ((.label // .id) + "=" + .value)'); then
+    echo >&2 "  ✗  could not parse $OP_RUNTIME_VAULT/$OP_RUNTIME_ITEM"
+    return 0
+  fi
   while IFS= read -r line; do
     [[ -z "$line" ]] && continue
     export "${line%%=*}=${line#*=}"
   done <<< "$kv"
+  _OP_RUNTIME_OK=1
+}
+
+# Why a machine-written value is missing. The old messages all said "not set in
+# .env", which sent whoever hit one looking in a file that never holds these
+# and cannot be edited anyway.
+_why_missing() {
+  if [[ "$_OP_RUNTIME_OK" == 1 ]]; then
+    echo "not in $OP_RUNTIME_VAULT/$OP_RUNTIME_ITEM"
+  else
+    echo "1Password runtime item unreadable — unlock 1Password and retry"
+  fi
 }
 
 load_env() {
   if [[ -e "$SCRIPT_DIR/.env" ]]; then
     _read_env_stream "$SCRIPT_DIR/.env"
   fi
+  _scrub_machine_written
   _load_op_runtime
 }
 load_env
@@ -110,7 +162,7 @@ new_machine() {
 install_apps() {
   local key="${TAILSCALE_AUTH_KEY:-}"
   if [[ -z "$key" ]]; then
-    echo >&2 "  ⚠  TAILSCALE_AUTH_KEY not set in .env — using placeholder"
+    echo >&2 "  ⚠  TAILSCALE_AUTH_KEY unavailable ($(_why_missing)) — using placeholder"
     key="<paste-key-here>"
   fi
   local zuser="${ZOIPER_USERNAME:-}"
@@ -131,7 +183,7 @@ install_apps() {
   if [[ -n "$sid" && -n "$scode" && -n "$sregion" ]]; then
     cmd="$cmd -SsmActivationId '$sid' -SsmActivationCode '$scode' -SsmRegion '$sregion'"
   else
-    echo >&2 "  ⚠  SSM_ACTIVATION_* not set in .env — SSM agent will be skipped in full setup"
+    echo >&2 "  ⚠  SSM activation unavailable ($(_why_missing)) — SSM agent will be skipped in full setup"
   fi
   echo "$cmd"
 }
@@ -221,7 +273,7 @@ sage_amg_onboard() {
 install_tailscale() {
   local key="${TAILSCALE_AUTH_KEY:-}"
   if [[ -z "$key" ]]; then
-    echo >&2 "  ⚠  TAILSCALE_AUTH_KEY not set in .env — using placeholder"
+    echo >&2 "  ⚠  TAILSCALE_AUTH_KEY unavailable ($(_why_missing)) — using placeholder"
     key="<paste-key-here>"
   fi
   echo "Set-ExecutionPolicy Bypass -Scope Process -Force; irm https://raw.githubusercontent.com/ameriglide/it-admin/main/scripts/setup-workstation.ps1 -OutFile \$env:TEMP\\setup-workstation.ps1; & \$env:TEMP\\setup-workstation.ps1 -TailscaleAuthKey \"$key\" -HeadscaleUrl \"${HEADSCALE_URL:-}\" -Only tailscale"
@@ -250,7 +302,7 @@ install_remote_agents() {
   if [[ "$tenant" == "Personal (SSM only)" ]]; then
     local pid="${SSM_ACTIVATION_ID_PERSONAL:-}" pcode="${SSM_ACTIVATION_CODE_PERSONAL:-}" region="${SSM_REGION:-}"
     if [[ -z "$pid" || -z "$pcode" || -z "$region" ]]; then
-      echo >&2 "  ⚠  SSM_ACTIVATION_ID_PERSONAL/CODE_PERSONAL/SSM_REGION not all set in .env — run ./bin/rotate-ssm-activation --personal"
+      echo >&2 "  ✗  personal SSM activation unavailable ($(_why_missing)); SSM_REGION comes from .env — mint with ./bin/rotate-ssm-activation --personal"
       return 1
     fi
     echo "Set-ExecutionPolicy Bypass -Scope Process -Force; irm https://raw.githubusercontent.com/ameriglide/it-admin/main/scripts/setup-workstation.ps1 -OutFile \$env:TEMP\\setup-workstation.ps1; & \$env:TEMP\\setup-workstation.ps1 -Only ssm -SsmActivationId '$pid' -SsmActivationCode '$pcode' -SsmRegion '$region'"
@@ -263,7 +315,7 @@ install_remote_agents() {
   if [[ -z "$url" ]]; then echo >&2 "  ⚠  Action1 agent URL for $tenant not set in .env"; return 1; fi
   local id="${SSM_ACTIVATION_ID:-}" code="${SSM_ACTIVATION_CODE:-}" region="${SSM_REGION:-}"
   if [[ -z "$id" || -z "$code" || -z "$region" ]]; then
-    echo >&2 "  ⚠  SSM_ACTIVATION_ID/CODE/REGION not all set in .env"; return 1
+    echo >&2 "  ✗  SSM activation unavailable ($(_why_missing)); SSM_REGION comes from .env — rotate with ./bin/rotate-ssm-activation"; return 1
   fi
   echo "Set-ExecutionPolicy Bypass -Scope Process -Force; irm https://raw.githubusercontent.com/ameriglide/it-admin/main/scripts/setup-workstation.ps1 -OutFile \$env:TEMP\\setup-workstation.ps1; & \$env:TEMP\\setup-workstation.ps1 -Only action1,ssm,edge,powercfg,debloat -Action1AgentUrl '$url' -SsmActivationId '$id' -SsmActivationCode '$code' -SsmRegion '$region'"
 }
@@ -271,7 +323,7 @@ install_remote_agents() {
 tailscale_key() {
   local key="${TAILSCALE_AUTH_KEY:-}"
   if [[ -z "$key" ]]; then
-    echo >&2 "  ⚠  TAILSCALE_AUTH_KEY not set in .env"
+    echo >&2 "  ✗  TAILSCALE_AUTH_KEY unavailable ($(_why_missing))"
     return 1
   fi
   if [[ -z "${HEADSCALE_URL:-}" ]]; then
@@ -417,7 +469,7 @@ install_linux_host_metrics() {
 
   local tok="${VECTOR_SHARED_SOURCE_TOKEN:-}" ingest="${VECTOR_SHARED_SOURCE_INGEST:-}"
   if [[ -z "$tok" || -z "$ingest" ]]; then
-    echo >&2 "  ⚠  VECTOR_SHARED_SOURCE_TOKEN / _INGEST not set — run 'provision Linux Vector source' first"; return 1
+    echo >&2 "  ⚠  VECTOR_SHARED_SOURCE_TOKEN / _INGEST unavailable ($(_why_missing)) — provision the Linux Vector source first"; return 1
   fi
   echo "curl -fsSL https://raw.githubusercontent.com/ameriglide/it-admin/main/scripts/install-vector-host-metrics.sh | sudo bash -s -- --source-token \"$tok\" --ingest-host \"$ingest\" --host-name \"$server\""
 }
@@ -450,7 +502,7 @@ install_server_monitoring() {
   else
     cmd="$cmd -SkipVector"
     if [[ -z "$vtok" ]]; then
-      echo >&2 "  ⚠  $var not set — emitting -SkipVector (run 'provision Vector source' first for host metrics)"
+      echo >&2 "  ⚠  $var unavailable ($(_why_missing)) — emitting -SkipVector (provision the Vector source first for host metrics)"
     else
       echo >&2 "  ⚠  $ivar not set — emitting -SkipVector (re-run 'provision Vector source' to cache the ingest host)"
     fi
