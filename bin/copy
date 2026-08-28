@@ -87,6 +87,7 @@ _scrub_machine_written() {
 # A read failure is reported once, here; the menu entries then refuse on their
 # own because the values they need are absent rather than stale.
 _OP_RUNTIME_OK=0
+_OP_RUNTIME_KV=""
 _load_op_runtime() {
   _OP_RUNTIME_OK=0
   if ! command -v op >/dev/null 2>&1; then
@@ -108,11 +109,34 @@ _load_op_runtime() {
     echo >&2 "  ✗  could not parse $OP_RUNTIME_VAULT/$OP_RUNTIME_ITEM"
     return 0
   fi
+  _OP_RUNTIME_KV="$kv"
+  _apply_op_runtime
+  _OP_RUNTIME_OK=1
+}
+
+# Values from the last successful item read, kept so the menu loop can
+# re-assert them after re-reading .env without paying the ~4s op round trip.
+_apply_op_runtime() {
+  local line
   while IFS= read -r line; do
     [[ -z "$line" ]] && continue
     export "${line%%=*}=${line#*=}"
-  done <<< "$kv"
-  _OP_RUNTIME_OK=1
+  done <<< "$_OP_RUNTIME_KV"
+}
+
+# Re-read .env, then put the item back on top of it.
+#
+# The select loop re-reads .env on every iteration because it is cheap. That
+# re-read also restores .env's stale SSM_ACTIVATION_ID over the good one the
+# item supplied at startup, and the item was only re-read when a previous
+# iteration had written to it -- which almost never happens. So the startup
+# overlay was undone before the first menu pick, and every one-liner carried
+# the stale activation whether or not 1Password was unlocked. Two workstation
+# installs failed identically on 2026-08-28 for exactly this reason.
+_reload_env_layers() {
+  if [[ -e "$SCRIPT_DIR/.env" ]]; then _read_env_stream "$SCRIPT_DIR/.env"; fi
+  _scrub_machine_written
+  _apply_op_runtime
 }
 
 # Why a machine-written value is missing. The old messages all said "not set in
@@ -596,9 +620,10 @@ select choice in "${LABELS[@]}"; do
   [[ -z "$choice" ]] && { [[ "$REPLY" == q ]] && break; continue; }
 
   # .env is cheap to re-read; the 1Password item is not (~4s), so only re-read
-  # it when a previous iteration actually wrote something.
-  if [[ -e "$SCRIPT_DIR/.env" ]]; then _read_env_stream "$SCRIPT_DIR/.env"; fi
+  # it when a previous iteration actually wrote something. Either way the
+  # item's values are re-asserted last -- see _reload_env_layers.
   if [[ -e "$_OP_DIRTY" ]]; then rm -f "$_OP_DIRTY"; _load_op_runtime; fi
+  _reload_env_layers
 
   payload=$(dispatch "$choice") || { echo; continue; }
 
