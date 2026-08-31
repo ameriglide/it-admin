@@ -275,8 +275,33 @@ $newDacl += New-PrinterAce -Sid $sid -Mask $PRINT_ON_DOCS   -Flags $OI_IO
 $sd.DACL  = $newDacl
 
 if (-not $WhatIfOnly) {
+    # Only the DACL is ours to change. GetSecurityDescriptor also hands back Owner
+    # and Group, and SetSecurityDescriptor will try to apply those too -- which
+    # fails with 1307 ERROR_INVALID_OWNER (0x8007051B) when the caller lacks the
+    # privilege to assign that owner SID. Clearing them leaves owner/group as they
+    # are and applies the DACL alone. Found on the first apply, 2026-08-31.
+    $sd.Owner = $null
+    $sd.Group = $null
+
     $rc = $wmiPrinter.SetSecurityDescriptor($sd).ReturnValue
-    if ($rc -ne 0) { throw "SetSecurityDescriptor failed with return value $rc." }
+    if ($rc -ne 0) {
+        $hex = "0x{0:X8}" -f $rc
+        $hint = switch ($rc) {
+            5          { "Access denied -- is this shell really elevated?" }
+            2147943707 { "ERROR_INVALID_OWNER: the descriptor still carries an owner this account cannot assign." }
+            default    { "" }
+        }
+        # Do not leave the printer shared with its original all-users DACL. That is
+        # the exact exposure this script exists to prevent, so undo the share before
+        # failing.
+        try {
+            Set-Printer -Name $printer.Name -Shared $false -ErrorAction Stop
+            Write-Warning "Rolled back: un-shared '$ShareName' so the printer is not left shared with its original permissions."
+        } catch {
+            Write-Warning "COULD NOT ROLL BACK. Un-share it by hand NOW: Set-Printer -Name '$($printer.Name)' -Shared `$false"
+        }
+        throw "SetSecurityDescriptor failed: $rc ($hex). $hint"
+    }
 }
 Good "$verb grant Print to $AccountName."
 $sidNames = @{
