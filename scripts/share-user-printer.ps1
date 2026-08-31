@@ -72,11 +72,18 @@ if ($spooler.Status -ne 'Running') {
 
 # Virtual/redirected devices are never the answer here.
 $virtual = 'Microsoft Print to PDF|Microsoft XPS|OneNote|Fax|PDFCreator|Adobe PDF'
+# NOTE: always wrap Get-Printer / Get-PrintJob / Get-NetFirewallRule results in @().
+# They return CimInstance objects, and a SINGLE CimInstance does not expose a
+# usable .Count -- it resolves against the CIM property bag and yields $null. That
+# made a one-printer machine fail both the -eq 1 and -eq 0 tests and fall through
+# to the "too many printers" branch, printing an empty count. Found on the first
+# real run, 2026-08-31.
 if ($PrinterName) {
     $printer = Get-Printer -Name $PrinterName -ErrorAction SilentlyContinue
     if (-not $printer) { throw "No printer named '$PrinterName'. Present: $((Get-Printer).Name -join '; ')" }
 } else {
-    $localAll = Get-Printer | Where-Object { $_.Type -eq 'Local' -and $_.Name -notmatch $virtual }
+    # @() is required: a single CimInstance has no usable .Count (see note above).
+    $localAll = @(Get-Printer | Where-Object { $_.Type -eq 'Local' -and $_.Name -notmatch $virtual })
     if ($localAll.Count -eq 1) {
         $printer = $localAll[0]
         Note "Auto-detected the only local printer: $($printer.Name)"
@@ -89,7 +96,7 @@ if ($PrinterName) {
         Write-Host "  or their printer is a network printer that Sage should reach directly." -ForegroundColor Yellow
         Write-Host ""
         Write-Host "  Printers Windows can see here (all types):" -ForegroundColor DarkGray
-        $all = Get-Printer
+        $all = @(Get-Printer)
         if ($all) {
             $all | ForEach-Object {
                 Write-Host "    $($_.Name)  [type=$($_.Type) port=$($_.PortName)]" -ForegroundColor DarkGray
@@ -119,8 +126,8 @@ $status = (Get-WmiObject Win32_Printer -Filter "Name='$($printer.Name -replace "
 if ($status -notin 3,4,5) { Bad "Printer status code $status (not idle/printing). Check power and cable." }
 else { Good "Printer reachable (status $status)." }
 
-$stuck = Get-PrintJob -PrinterName $printer.Name -ErrorAction SilentlyContinue
-if ($stuck) { Note "$($stuck.Count) job(s) in the queue." }
+$stuck = @(Get-PrintJob -PrinterName $printer.Name -ErrorAction SilentlyContinue)
+if ($stuck.Count -gt 0) { Note "$($stuck.Count) job(s) in the queue." }
 
 # ---------------------------------------------------------- step 1b: tailnet IP
 Write-Host "`n[2/5] Tailscale address" -ForegroundColor Cyan
@@ -256,8 +263,8 @@ Write-Host "`n[5/5] Firewall: SMB from the tailnet only" -ForegroundColor Cyan
 
 $ruleName = "IAI Sage printer share (SMB from tailnet)"
 if (-not $WhatIfOnly) {
-    $existing = Get-NetFirewallRule -DisplayName $ruleName -ErrorAction SilentlyContinue
-    if ($existing) { $existing | Remove-NetFirewallRule }
+    $existing = @(Get-NetFirewallRule -DisplayName $ruleName -ErrorAction SilentlyContinue)
+    if ($existing.Count -gt 0) { $existing | Remove-NetFirewallRule }
     New-NetFirewallRule -DisplayName $ruleName -Direction Inbound -Action Allow `
         -Protocol TCP -LocalPort 445 -RemoteAddress $AllowFrom -Profile Any `
         -Description "Lets the AWS Sage host reach this user's printer share." | Out-Null
@@ -267,9 +274,9 @@ Good "$verb allow TCP 445 inbound from $($AllowFrom -join ', ') only."
 if ($KeepLanSmb) {
     Note "-KeepLanSmb: left the broad LAN SMB-In rules untouched."
 } else {
-    $broad = Get-NetFirewallRule -Direction Inbound -Enabled True -Action Allow -ErrorAction SilentlyContinue |
-        Where-Object { $_.DisplayName -like 'File and Printer Sharing*SMB-In*' }
-    if ($broad) {
+    $broad = @(Get-NetFirewallRule -Direction Inbound -Enabled True -Action Allow -ErrorAction SilentlyContinue |
+        Where-Object { $_.DisplayName -like 'File and Printer Sharing*SMB-In*' })
+    if ($broad.Count -gt 0) {
         if (-not $WhatIfOnly) { $broad | Disable-NetFirewallRule }
         Good "$verb disable $($broad.Count) broad SMB-In rule(s) so LAN/Public cannot reach 445."
         Note "Revert with: Get-NetFirewallRule -DisplayName 'File and Printer Sharing*SMB-In*' | Enable-NetFirewallRule"
