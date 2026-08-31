@@ -132,18 +132,41 @@ if ($stuck.Count -gt 0) { Note "$($stuck.Count) job(s) in the queue." }
 # ---------------------------------------------------------- step 1b: tailnet IP
 Write-Host "`n[2/5] Tailscale address" -ForegroundColor Cyan
 
-$tailscaleIp = $null
-$tsExe = "$env:ProgramFiles\Tailscale\tailscale.exe"
-if (Test-Path $tsExe) {
-    $tailscaleIp = (& $tsExe ip -4 2>$null | Select-Object -First 1)
-}
+# Read the address off the adapter FIRST. `tailscale.exe ip` is owned by whichever
+# user started the Tailscale client, and returns "401 Unauthorized: Tailscale
+# already in use by <user>" to anyone else -- which is the normal case here, since
+# this script runs elevated as a local admin while the client belongs to the
+# console user. The adapter is readable regardless of who owns the client.
+$tailscaleIp = (Get-NetIPAddress -AddressFamily IPv4 -ErrorAction SilentlyContinue |
+    Where-Object { $_.IPAddress -like '100.*' -and $_.InterfaceAlias -match 'Tailscale' } |
+    Select-Object -First 1 -ExpandProperty IPAddress)
+
 if (-not $tailscaleIp) {
-    $tailscaleIp = (Get-NetIPAddress -AddressFamily IPv4 -ErrorAction SilentlyContinue |
-        Where-Object { $_.IPAddress -like '100.*' -and $_.InterfaceAlias -match 'Tailscale' } |
-        Select-Object -First 1 -ExpandProperty IPAddress)
+    # Fall back to the CLI, but never let its stderr become a terminating error --
+    # $ErrorActionPreference is 'Stop' for this script and a NativeCommandError
+    # would otherwise abort the whole run over a purely cosmetic value.
+    $tsExe = "$env:ProgramFiles\Tailscale\tailscale.exe"
+    if (Test-Path $tsExe) {
+        try {
+            $prev = $ErrorActionPreference
+            $ErrorActionPreference = 'Continue'
+            $out = & $tsExe ip -4 2>&1
+            $ErrorActionPreference = $prev
+            $tailscaleIp = ($out | Where-Object { "$_" -match '^\d{1,3}(\.\d{1,3}){3}$' } |
+                            Select-Object -First 1)
+        } catch {
+            $ErrorActionPreference = 'Stop'
+        }
+    }
 }
-if ($tailscaleIp) { Good "Workstation tailnet IP: $tailscaleIp" }
-else { Bad "No Tailscale IPv4 found. Sage cannot reach this box until Tailscale is up." }
+if ($tailscaleIp) {
+    Good "Workstation tailnet IP: $tailscaleIp"
+} else {
+    # Not fatal: this value only decorates the closing instructions. Everything
+    # that actually changes the machine uses -AllowFrom, not this.
+    $tailscaleIp = '<workstation-tailnet-ip>'
+    Bad "Could not read a Tailscale IPv4 here. Confirm Tailscale is up, and substitute the real address in the instructions below."
+}
 
 # ------------------------------------------------------------- step 2: identity
 Write-Host "`n[3/5] Share name and grantee" -ForegroundColor Cyan
