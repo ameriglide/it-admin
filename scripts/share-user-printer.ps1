@@ -16,6 +16,12 @@
 # install or rundll32 PrintUIEntry over SSM: those run as the Sage-side account,
 # land in HKLM, and give every Sage user the printer.
 #
+# NOTE on the firewall step: on this fleet, Windows Firewall inbound rules do
+# not govern tailnet traffic -- Tailscale permits it below that layer, so 445
+# stays reachable tailnet-wide no matter what this script adds. The single-user
+# share DACL, not the firewall, is what keeps the printer private. Restricting
+# who can reach 445 belongs in the tailnet ACL. Measured 2026-08-31.
+#
 # Run elevated ON the user's workstation. Idempotent. ASCII only.
 #
 #   .\share-user-printer.ps1 -AllowFrom <sage-tailnet-ip>
@@ -314,7 +320,7 @@ if ($unknown.Count -gt 0) {
 }
 
 # --------------------------------------------------------------- step 4: firewall
-Write-Host "`n[5/5] Firewall: SMB from the tailnet only" -ForegroundColor Cyan
+Write-Host "`n[5/5] Firewall: SMB reachability" -ForegroundColor Cyan
 
 $ruleName = "IAI Sage printer share (SMB from tailnet)"
 if (-not $WhatIfOnly) {
@@ -324,7 +330,27 @@ if (-not $WhatIfOnly) {
         -Protocol TCP -LocalPort 445 -RemoteAddress $AllowFrom -Profile Any `
         -Description "Lets the AWS Sage host reach this user's printer share." | Out-Null
 }
-Good "$verb allow TCP 445 inbound from $($AllowFrom -join ', ') only."
+Good "$verb add an inbound allow for TCP 445 from $($AllowFrom -join ', ')."
+
+# Do NOT claim this restricts anything. Measured on this fleet 2026-08-31: the
+# Windows Firewall profiles are enabled with inbound default Block and no rule
+# permits 445, yet 445 answers from anywhere on the tailnet -- on IAI and
+# AmeriGlide machines alike. Tailscale permits inbound tailnet connections
+# through its own WFP filters, below the layer Get-NetFirewallRule describes,
+# whenever ShieldsUp is off. Two independent reasons an allow-rule cannot
+# narrow this: it adds permission to a path already permitted, and Windows
+# Firewall unions allow-rules, so "only from X" is not expressible by adding
+# an allow at all.
+$tsAdapter = @(Get-NetIPAddress -AddressFamily IPv4 -ErrorAction SilentlyContinue |
+    Where-Object { $_.IPAddress -like '100.*' -and $_.InterfaceAlias -match 'Tailscale' })
+if ($tsAdapter.Count -gt 0) {
+    Bad ("Windows Firewall is NOT the effective control for tailnet traffic here. " +
+         "Expect TCP 445 to stay reachable from the whole tailnet regardless of this rule. " +
+         "The share DACL above is what actually keeps this printer private. " +
+         "To restrict reachability, use the tailnet ACL, not this machine.")
+    Note "Verify from a machine that is NOT $($AllowFrom -join '/'):  Test-NetConnection $tailscaleIp -Port 445"
+    Note "  It answering does not mean this printer is exposed -- the DACL still gates use."
+}
 
 if ($KeepLanSmb) {
     Note "-KeepLanSmb: left the broad LAN SMB-In rules untouched."
@@ -333,7 +359,7 @@ if ($KeepLanSmb) {
         Where-Object { $_.DisplayName -like 'File and Printer Sharing*SMB-In*' })
     if ($broad.Count -gt 0) {
         if (-not $WhatIfOnly) { $broad | Disable-NetFirewallRule }
-        Good "$verb disable $($broad.Count) broad SMB-In rule(s) so LAN/Public cannot reach 445."
+        Good "$verb disable $($broad.Count) broad SMB-In rule(s) (removes the LAN/Public path; see the tailnet caveat above)."
         Note "Revert with: Get-NetFirewallRule -DisplayName 'File and Printer Sharing*SMB-In*' | Enable-NetFirewallRule"
     } else {
         Note "No broad SMB-In rules were enabled."
@@ -345,6 +371,7 @@ $unc = "\\$tailscaleIp\$ShareName"
 Write-Host "`n============================ VERDICT ============================" -ForegroundColor Cyan
 if ($issues.Count -eq 0) {
     Write-Host "Workstation side is ready." -ForegroundColor Green
+    Write-Host "The share DACL is what makes this printer private to one user." -ForegroundColor Green
 } else {
     Write-Host "Workstation side is INCOMPLETE -- resolve these first:" -ForegroundColor Yellow
     $issues | ForEach-Object { Write-Host "  - $_" -ForegroundColor Yellow }
