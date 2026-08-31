@@ -80,8 +80,29 @@ if ($PrinterName) {
     if ($localAll.Count -eq 1) {
         $printer = $localAll[0]
         Note "Auto-detected the only local printer: $($printer.Name)"
+    } elseif ($localAll.Count -eq 0) {
+        # The common case when someone was put on this list by mistake. Say so
+        # plainly rather than making the operator infer it from an empty list.
+        Write-Host ""
+        Write-Host "NO LOCAL PRINTER ON THIS MACHINE." -ForegroundColor Yellow
+        Write-Host "  Nothing to share. This user does not need a Sage printer share," -ForegroundColor Yellow
+        Write-Host "  or their printer is a network printer that Sage should reach directly." -ForegroundColor Yellow
+        Write-Host ""
+        Write-Host "  Printers Windows can see here (all types):" -ForegroundColor DarkGray
+        $all = Get-Printer
+        if ($all) {
+            $all | ForEach-Object {
+                Write-Host "    $($_.Name)  [type=$($_.Type) port=$($_.PortName)]" -ForegroundColor DarkGray
+            }
+        } else {
+            Write-Host "    (none at all)" -ForegroundColor DarkGray
+        }
+        Write-Host ""
+        Write-Host "No changes were made. Nothing to revert." -ForegroundColor Green
+        return
     } else {
-        throw ("Cannot auto-detect. Pass -PrinterName. Local printers: " +
+        throw ("Found $($localAll.Count) local printers; cannot pick one. Re-run with " +
+               "-PrinterName set to one of: " +
                (($localAll | ForEach-Object { "$($_.Name) [$($_.PortName)]" }) -join '; '))
     }
 }
