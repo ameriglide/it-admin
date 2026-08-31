@@ -273,12 +273,44 @@ if (-not $WhatIfOnly) {
     if ($rc -ne 0) { throw "SetSecurityDescriptor failed with return value $rc." }
 }
 Good "$verb grant Print to $AccountName."
-if ($removed) { Good "$verb remove broad print grants: $($removed -join ', ')" }
-else { Note "No broad print grants were present." }
-$extra = @($kept | Where-Object { $keepSids -notcontains $_.Trustee.SIDString })
+$sidNames = @{
+    'S-1-1-0'      = 'Everyone'
+    'S-1-5-11'     = 'Authenticated Users'
+    'S-1-5-4'      = 'INTERACTIVE'
+    'S-1-5-32-545' = 'BUILTIN\Users'
+    'S-1-15-2-1'   = 'ALL APPLICATION PACKAGES'
+    'S-1-15-2-2'   = 'ALL RESTRICTED APPLICATION PACKAGES'
+}
+$removedUnique = @($removed | Select-Object -Unique)
+if ($removedUnique.Count -gt 0) {
+    $pretty = ($removedUnique | ForEach-Object { if ($sidNames[$_]) { $sidNames[$_] } else { $_ } }) -join ', '
+    Good "$verb remove broad print grants from: $pretty  ($($removed.Count) ACE(s))"
+} else {
+    Note "No broad print grants were present."
+}
 Note "Preserved: Administrators, SYSTEM, CREATOR OWNER"
-if ($extra.Count -gt 0) {
-    Bad "$($extra.Count) other principal(s) still hold rights on this printer -- review: $(($extra | ForEach-Object { $_.Trustee.SIDString }) -join ', ')"
+
+# One SID normally holds several ACEs on a printer -- one on the object plus
+# inherit-only ones for documents -- so report distinct principals, not raw rows.
+$extraSids = @($kept |
+    Where-Object { $keepSids -notcontains $_.Trustee.SIDString } |
+    ForEach-Object { $_.Trustee.SIDString } |
+    Select-Object -Unique)
+
+# S-1-15-3-* are app-container CAPABILITY SIDs. Windows puts one on every printer
+# so Store/UWP apps can print locally. This is NOT a remote exposure: a user
+# arriving over SMB never carries a capability SID in their token, so it grants
+# nothing to another Sage user. Stripping it would only break Store-app printing
+# for the machine's own user. Report it and move on -- do not remove it, and do
+# not hold up the verdict over it.
+$capability = @($extraSids | Where-Object { $_ -like 'S-1-15-3-*' })
+$unknown    = @($extraSids | Where-Object { $_ -notlike 'S-1-15-3-*' })
+
+if ($capability.Count -gt 0) {
+    Note "$($capability.Count) app-container capability SID(s) left in place (normal on Windows printers; local Store-app printing only, not reachable over SMB)."
+}
+if ($unknown.Count -gt 0) {
+    Bad "Unexpected principal(s) still hold rights on this printer -- review: $($unknown -join ', ')"
 }
 
 # --------------------------------------------------------------- step 4: firewall
