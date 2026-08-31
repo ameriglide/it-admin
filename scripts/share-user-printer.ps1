@@ -55,10 +55,15 @@ $ErrorActionPreference = 'Stop'
 $Script:Revision = "unreleased"
 
 $verb   = if ($WhatIfOnly) { 'Would' } else { 'Did' }
-$issues = [System.Collections.Generic.List[string]]::new()
+$issues     = [System.Collections.Generic.List[string]]::new()   # block the verdict
+$advisories = [System.Collections.Generic.List[string]]::new()   # true, but not fixable here
 function Note($m) { Write-Host "  $m" -ForegroundColor DarkGray }
 function Good($m) { Write-Host "  $m" -ForegroundColor Green }
 function Bad($m)  { Write-Host "  $m" -ForegroundColor Yellow; $issues.Add($m) | Out-Null }
+# A standing property of the environment that the operator cannot act on here.
+# Keep it out of $issues: a verdict that always reads INCOMPLETE is a verdict
+# nobody reads, and the real blockers stop standing out.
+function Caveat($m) { Write-Host "  $m" -ForegroundColor Yellow; $advisories.Add($m) | Out-Null }
 
 if (-not ([Security.Principal.WindowsPrincipal] `
           [Security.Principal.WindowsIdentity]::GetCurrent()
@@ -369,7 +374,7 @@ Good "$verb add an inbound allow for TCP 445 from $($AllowFrom -join ', ')."
 $tsAdapter = @(Get-NetIPAddress -AddressFamily IPv4 -ErrorAction SilentlyContinue |
     Where-Object { $_.IPAddress -like '100.*' -and $_.InterfaceAlias -match 'Tailscale' })
 if ($tsAdapter.Count -gt 0) {
-    Bad ("Windows Firewall is NOT the effective control for tailnet traffic here. " +
+    Caveat ("Windows Firewall is NOT the effective control for tailnet traffic here. " +
          "Expect TCP 445 to stay reachable from the whole tailnet regardless of this rule. " +
          "The share DACL above is what actually keeps this printer private. " +
          "To restrict reachability, use the tailnet ACL, not this machine.")
@@ -400,6 +405,11 @@ if ($issues.Count -eq 0) {
 } else {
     Write-Host "Workstation side is INCOMPLETE -- resolve these first:" -ForegroundColor Yellow
     $issues | ForEach-Object { Write-Host "  - $_" -ForegroundColor Yellow }
+}
+if ($advisories.Count -gt 0) {
+    Write-Host ""
+    Write-Host "Standing caveats -- true, but nothing to fix on this machine:" -ForegroundColor DarkYellow
+    $advisories | ForEach-Object { Write-Host "  - $_" -ForegroundColor DarkYellow }
 }
 Write-Host @"
 
