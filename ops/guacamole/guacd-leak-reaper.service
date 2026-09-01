@@ -1,0 +1,10 @@
+[Unit]
+Description=Reap leaked guacd connection children
+After=guacd.service
+Wants=guacd.service
+
+[Service]
+Type=oneshot
+EnvironmentFile=-/etc/guacd-leak-reaper.env
+ExecStart=/opt/guacd-leak-reaper/guacd-leak-reaper.sh
+TimeoutStartSec=180
