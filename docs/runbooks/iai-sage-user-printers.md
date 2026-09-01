@@ -47,6 +47,35 @@ Get-LocalUser | Where-Object Enabled             # local accounts, if workgroup
 with the list of valid local accounts rather than creating a share nobody can
 reach.
 
+## Step 0: prove the printer actually prints, BEFORE anything else
+
+Run this on the workstation and confirm a sheet comes out:
+
+```powershell
+(Get-WmiObject Win32_Printer -Filter "Name='<printer>'").PrintTestPage()
+```
+
+Do not skip it and do not infer it from the printer looking healthy. The first
+real rollout burned most of a day diagnosing share permissions on a printer that
+could not print from its own PC and had not since the previous October. Windows
+reported it `Normal`, `DetectedErrorState 0`, `WorkOffline False` throughout.
+
+Two things that produce "job disappears, no paper, no error":
+
+* **A generic class driver.** `Brother Laser Type1 Class Driver`, `HP Color
+  LaserJet ... Class Driver` and friends accept jobs and render nothing. Install
+  the vendor's model-specific driver. `Set-Printer -DriverName` refuses to swap
+  a driver (`0x80070032 ERROR_NOT_SUPPORTED`) -- use `Remove-Printer` then
+  `Add-Printer`, then **reboot**, which is what finally made it print.
+* **`WorkOffline = True`.** Check with
+  `Get-CimInstance Win32_Printer | Select Name,WorkOffline,PrinterStatus,Default`.
+  If `Get-PnpDevice` shows the printer `Unknown` rather than `OK`, it is simply
+  off or unplugged -- no amount of software work will help.
+
+Also confirm which printer object the user really prints through (`Default`).
+Machines often carry two objects for the same USB device, one on a good driver
+and one on a class driver.
+
 ## Steps 1-4: on the workstation (scripted)
 
 Run elevated on the user's own workstation. `-AllowFrom` is the Sage host's
@@ -89,6 +118,41 @@ Test-NetConnection <workstation-tailnet-ip> -Port 445
 `TcpTestSucceeded : True` is required before going further. If it fails, check
 that Tailscale is up on the workstation and that the workstation is awake --
 see "What breaks this later" below.
+
+## Step 5b: pre-install the printer's driver ON THE SAGE HOST
+
+**Required. The user's connect fails without it**, with the useless dialog
+"Windows cannot connect to the printer. No printers were found."
+
+Non-admins cannot install a driver from a remote print server (the
+post-PrintNightmare default), and the driver cannot be made to transfer from the
+workstation by any route: unelevated gives `0x800702e4 ERROR_ELEVATION_REQUIRED`,
+elevated gives `0x80070005 ERROR_ACCESS_DENIED` even after `net use \\<ws>\IPC$`
+authenticates successfully in the same window. Stop trying to pull it across --
+put it on the Sage host directly.
+
+On the Sage host, elevated:
+
+```powershell
+pnputil /add-driver "C:\<extracted-driver-folder>\*.inf" /subdirs /install
+Add-PrinterDriver -Name "<exact driver name from the workstation>"
+Get-PrinterDriver | findstr /i <vendor>
+```
+
+`Add-PrinterDriver` is **not** optional -- `pnputil` (or the vendor's `dpinst`)
+stages the package but leaves `Get-PrinterDriver` empty on its own.
+
+The name must match the workstation's `DriverName` exactly, and the driver
+version must match too: take the **v3** package, not v4. Prefer a "no installer"
+download so there is no wizard demanding attached hardware.
+
+Do every printer in one sitting rather than per user.
+
+**Diagnosing this step:** never trust the GUI dialog. Use
+`Add-Printer -ConnectionName \\<ws-ip>\<share>` instead -- it returns a real
+HRESULT. `Get-SmbSession` on the workstation shows whether the user's Sage
+session ever arrived at all, which separates a connection problem from a driver
+one.
 
 ## Steps 6-7: the user, in their own Sage desktop
 
