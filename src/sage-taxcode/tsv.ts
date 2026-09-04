@@ -21,8 +21,10 @@ export function parseDump(text: string): Map<string, Table> {
     }
     if (line === "") continue;
     if (!current) throw new Error("sage-taxcode dump: data before the first ##### marker");
+    // error set => rows empty; a mid-table failure discards what was read before it
     if (line.startsWith("!ERROR\t")) {
       current.error = line.slice("!ERROR\t".length);
+      current.rows = [];
       continue;
     }
     const cells = line.split("\t");

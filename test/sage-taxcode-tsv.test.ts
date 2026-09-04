@@ -40,4 +40,11 @@ describe("parseDump", () => {
   test("throws on text before the first marker", () => {
     expect(() => parseDump("garbage\n##### T\nA\n")).toThrow(/before the first/);
   });
+  test("an error after data rows discards the partial rows", () => {
+    const t = parseDump("##### T\nA\tB\nx\ty\n!ERROR\tread failed mid-table\n");
+    const tbl = t.get("T")!;
+    expect(tbl.error).toBe("read failed mid-table");
+    expect(tbl.rows).toEqual([]);
+    expect(tbl.columns).toEqual(["A", "B"]);
+  });
 });
