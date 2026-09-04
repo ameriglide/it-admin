@@ -1,7 +1,7 @@
 # Shared helpers for sage-taxcode-dump.ps1 and sage-taxcode-apply.ps1 (AG-806).
 # Pure functions only: no ODBC, no COM, so they can be exercised by Pester on
 # any machine. Dot-source this file. ASCII only.
-$Script:Revision = ""
+$Script:Revision = "eaf77ed"
 
 function Get-SageLiveConnectionString {
     param([Parameter(Mandatory)][string]$Dsn)

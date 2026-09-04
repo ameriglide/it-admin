@@ -5,8 +5,10 @@ for script in scripts/*.ps1; do
   if grep -q 'Script:Revision' "$script"; then
     if git diff --cached --name-only | grep -q "$(basename "$script")"; then
       REV=$(git log -1 --format=%h -- "$script")
-      sed -i '' "s/\$Script:Revision = \".*\"/\$Script:Revision = \"$REV\"/" "$script"
-      git add "$script"
+      if [ -n "$REV" ]; then
+        sed -i '' "s/\$Script:Revision = \".*\"/\$Script:Revision = \"$REV\"/" "$script"
+        git add "$script"
+      fi
     fi
   fi
 done
