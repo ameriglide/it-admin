@@ -1,7 +1,7 @@
 # Shared helpers for sage-taxcode-dump.ps1 and sage-taxcode-apply.ps1 (AG-806).
 # Pure functions only: no ODBC, no COM, so they can be exercised by Pester on
 # any machine. Dot-source this file. ASCII only.
-$Script:Revision = "eaf77ed"
+$Script:Revision = "346bbe3"
 
 function Get-SageLiveConnectionString {
     param([Parameter(Mandatory)][string]$Dsn)
@@ -60,4 +60,14 @@ function Format-ApplyLogLine {
     )
     $ts = (Get-Date).ToUniversalTime().ToString('yyyy-MM-ddTHH:mm:ssZ')
     return ($ts, $Phase, $Key, $Before, $After, $Result) -join "`t"
+}
+
+function ConvertTo-HeaderLogValue {
+    param([Parameter(Mandatory)][object]$Header)
+    return ('desc={0}|short={1}|tot={2}|totclass={3}|limit={4}|etv={5}|ret={6}' -f $Header.TaxCodeDesc, $Header.TaxCodeShortDesc, $Header.TaxOnTax, $Header.TaxClassForTaxOnTax, $Header.TaxLimit, $Header.ExpenseToVendorItem, $Header.RetentionTaxable)
+}
+
+function ConvertTo-LineLogValue {
+    param([Parameter(Mandatory)][object]$Line)
+    return ('sales={0}|purch={1}|rate={2}|nonrec={3}' -f $Line.SalesTaxable, $Line.PurchasesTaxable, $Line.TaxRate, $Line.NonRecoverablePercent)
 }

@@ -71,3 +71,17 @@ Describe 'Format-ApplyLogLine' {
         $parts[5] | Should -Be 'nSetKey=2 nWrite=1 verify=ok'
     }
 }
+
+Describe 'ConvertTo-HeaderLogValue' {
+    It 'flattens a header record' {
+        $h = [pscustomobject]@{ TaxCode = 'TX BELL COUNTY'; TaxCodeDesc = 'TX BELL COUNTY'; TaxCodeShortDesc = 'TX BEL'; TaxOnTax = 'N'; TaxClassForTaxOnTax = ''; TaxLimit = '0.000000'; ExpenseToVendorItem = 'N'; RetentionTaxable = 'N' }
+        ConvertTo-HeaderLogValue $h | Should -Be 'desc=TX BELL COUNTY|short=TX BEL|tot=N|totclass=|limit=0.000000|etv=N|ret=N'
+    }
+}
+
+Describe 'ConvertTo-LineLogValue' {
+    It 'flattens a line record' {
+        $l = [pscustomobject]@{ TaxCode = 'AZ MESA'; TaxClass = 'TF'; SalesTaxable = 'N'; PurchasesTaxable = 'N'; TaxRate = '0.000000'; NonRecoverablePercent = '0.000' }
+        ConvertTo-LineLogValue $l | Should -Be 'sales=N|purch=N|rate=0.000000|nonrec=0.000'
+    }
+}
