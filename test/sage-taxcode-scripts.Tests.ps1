@@ -5,7 +5,7 @@ Describe 'sage-taxcode scripts parse' {
     $scripts = Get-ChildItem -Path "$PSScriptRoot/../scripts" -Filter 'sage-taxcode-*.ps1' | ForEach-Object { @{ Path = $_.FullName; Name = $_.Name } }
 
     It 'finds at least the lib and the dump script' {
-        $scripts.Count | Should -BeGreaterOrEqual 2
+        (Get-ChildItem -Path "$PSScriptRoot/../scripts" -Filter 'sage-taxcode-*.ps1').Count | Should -BeGreaterOrEqual 2
     }
 
     It 'parses <Name> without errors' -ForEach $scripts {

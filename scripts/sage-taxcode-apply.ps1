@@ -17,7 +17,7 @@ param(
     [string]$SageHome = 'C:\Sage\Sage 100\MAS90\Home',
     [string]$Log = (Join-Path $env:ProgramData 'ag-admin\sage-taxcode-apply.log')
 )
-$Script:Revision = "unversioned"
+$Script:Revision = "27a76a2"
 $ErrorActionPreference = 'Stop'
 . (Join-Path $PSScriptRoot 'sage-taxcode-lib.ps1')
 
@@ -114,15 +114,21 @@ if ($SelfTest) {
     $d = $s.pvx.NewObject('SY_SalesTaxCodeDetail_bus', $s.session)
     $h = [pscustomobject]@{ TaxCode = $key; TaxCodeDesc = 'AG-806 self test - delete me'; TaxCodeShortDesc = 'AG806'; TaxOnTax = 'N'; TaxClassForTaxOnTax = ''; TaxLimit = '0'; ExpenseToVendorItem = 'N'; RetentionTaxable = 'N' }
     $l = [pscustomobject]@{ TaxCode = $key; TaxClass = 'TX'; SalesTaxable = 'Y'; PurchasesTaxable = 'N'; TaxRate = '1.25'; NonRecoverablePercent = '0' }
-    Write-Log (Format-ApplyLogLine -Phase 'selftest-header' -Key $key -Before '' -After (ConvertTo-HeaderLogValue $h) -Result (Write-Header $o $h $true))
-    Write-Log (Format-ApplyLogLine -Phase 'selftest-line' -Key "$key/TX" -Before '' -After (ConvertTo-LineLogValue $l) -Result (Write-Line $d $l $true))
-    [void]$o.nSetKey($key); $del = $o.nDelete()
-    $gone = ($o.nFind($key) -eq 0) -and ($null -eq (Read-Line $d $key 'TX'))
-    Write-Log (Format-ApplyLogLine -Phase 'selftest-delete' -Key $key -Before '' -After '' -Result "nDelete=$del gone=$gone")
-    $o.DropObject(); $d.DropObject(); $s.session.DropObject()
-    if (-not $gone) { Write-Log 'SELFTEST FAILED: test code still present'; exit 3 }
-    Write-Log 'SELFTEST OK'
-    exit 0
+    try {
+        Write-Log (Format-ApplyLogLine -Phase 'selftest-header' -Key $key -Before '' -After (ConvertTo-HeaderLogValue $h) -Result (Write-Header $o $h $true))
+        Write-Log (Format-ApplyLogLine -Phase 'selftest-line' -Key "$key/TX" -Before '' -After (ConvertTo-LineLogValue $l) -Result (Write-Line $d $l $true))
+        [void]$o.nSetKey($key); $del = $o.nDelete()
+        $gone = ($o.nFind($key) -eq 0) -and ($null -eq (Read-Line $d $key 'TX'))
+        Write-Log (Format-ApplyLogLine -Phase 'selftest-delete' -Key $key -Before '' -After '' -Result "nDelete=$del gone=$gone")
+        if (-not $gone) { Write-Log 'SELFTEST FAILED: test code still present'; exit 3 }
+        Write-Log 'SELFTEST OK'
+        exit 0
+    } catch {
+        Write-Log "STOP: $($_.Exception.Message)"
+        exit 3
+    } finally {
+        try { $o.DropObject(); $d.DropObject(); $s.session.DropObject() } catch { }
+    }
 }
 
 $planObj = Get-Content -Path $Plan -Raw | ConvertFrom-Json
