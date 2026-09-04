@@ -85,4 +85,17 @@ describe("buildPlan", () => {
     const missing = parseDump("##### SY_SalesTaxCode\n" + HEADER_COLS + "\n");
     expect(() => buildPlan(missing, live, { snapshotFile: "s", liveFile: "l" })).toThrow(/SY_SalesTaxCodeDetail/);
   });
+  test("throws when a required VI element table failed on the live side", () => {
+    const brokenLive = parseDump(dump({ headers: [h("AL")], lines: [l("AL", "TX", "Y", "4.000000")] }).replace("##### VI_JobExportElements\nJobName\tSequenceNo", "##### VI_JobExportElements\n!ERROR\tboom"));
+    expect(() => buildPlan(snapshot, brokenLive, { snapshotFile: "s", liveFile: "l" })).toThrow(/live dump: VI_JobExportElements/);
+  });
+  test("a header on both sides with a different description is reported, never planned", () => {
+    const liveChanged = parseDump(dump({ headers: [h("AL", "ALABAMA STATE"), h("AZ MESA"), h("MO ODESSA")], lines: [l("AL", "TX", "Y", "4.000000")] }));
+    const p = buildPlan(snapshot, liveChanged, { snapshotFile: "s", liveFile: "l" });
+    expect(p.changedHeaders).toHaveLength(1);
+    expect(p.changedHeaders[0].key).toEqual({ TaxCode: "AL" });
+    expect(p.changedHeaders[0].changed).toEqual(["TaxCodeDesc"]);
+    expect(p.changedHeaders[0].to.TaxCodeDesc).toBe("AL");
+    expect(p.addHeaders.map((x) => x.TaxCode)).not.toContain("AL");
+  });
 });
