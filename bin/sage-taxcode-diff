@@ -1,0 +1,24 @@
+#!/usr/bin/env bun
+// bin/sage-taxcode-diff <snapshot.tsv> <live.tsv> [--out plan.json]
+// Turns two scripts/sage-taxcode-dump.ps1 outputs into the AG-806 merge plan.
+import { parseArgs } from "util";
+import { readFileSync, writeFileSync } from "fs";
+import { parseDump } from "../src/sage-taxcode/tsv";
+import { buildPlan } from "../src/sage-taxcode/diff";
+import { summarize } from "../src/sage-taxcode/summary";
+
+const { values, positionals } = parseArgs({
+  args: Bun.argv.slice(2),
+  options: { out: { type: "string", default: "sage-taxcode-plan.json" } },
+  allowPositionals: true,
+  strict: true,
+});
+if (positionals.length !== 2) {
+  console.error("Usage: bin/sage-taxcode-diff <snapshot.tsv> <live.tsv> [--out plan.json]");
+  process.exit(1);
+}
+const [snapshotFile, liveFile] = positionals;
+const plan = buildPlan(parseDump(readFileSync(snapshotFile, "utf8")), parseDump(readFileSync(liveFile, "utf8")), { snapshotFile, liveFile });
+writeFileSync(values.out!, JSON.stringify(plan, null, 2) + "\n");
+console.error(summarize(plan));
+console.error(`plan written to ${values.out}`);

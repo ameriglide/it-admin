@@ -1,0 +1,39 @@
+##### SY_SalesTaxCode
+TaxCode	TaxCodeDesc	TaxCodeShortDesc	TaxOnTax	TaxClassForTaxOnTax	TaxLimit	ExpenseToVendorItem	RetentionTaxable
+AL	AL	AL	N		0.000000	N	N
+CA FRESNO	CA FRESNO	CA FRE	N		0.000000	N	N
+CA MODESTO	CA MODESTO	CA MOD	N		0.000000	N	N
+TX BELL COUNTY	TX BELL COUNTY	TX BEL	N		0.000000	N	N
+WA KENT	WA KENT	WA KEN	N		0.000000	N	N
+##### SY_SalesTaxCodeDetail
+TaxCode	TaxClass	SalesTaxable	PurchasesTaxable	TaxRate	NonRecoverablePercent
+AL	TX	Y	N	4	0.000000
+CA FRESNO	TX	Y	N	0.375	0.000000
+CA FRESNO	TF	N	N	0.000000	0.000000
+CA MODESTO	TX	Y	N	0.5	0.000000
+CA MODESTO	TF	N	N	0.000000	0.000000
+TX BELL COUNTY	TX	Y	N	2	0.000000
+TX BELL COUNTY	TF	Y	N	2	0.000000
+WA KENT	TX	Y	N	2.1	0.000000
+WA KENT	TF	Y	N	2.1	0.000000
+##### SY_SalesTaxClass
+TaxClass	TaxClassDesc
+TX	Taxable
+TF	Taxable Freight
+NT	Non Taxable
+##### VI_JobHeader
+JobName	JobType	LastCompanyCode	TableName	JobLongDescription
+OLD_JOB	I	AD1	CI_Item	old
+IMP_TAX_TF	I	AD1	SY_SalesTaxCodeDetail	Import tax TF
+##### VI_JobImportElements
+JobName	SequenceNo
+IMP_TAX_TF	1
+IMP_TAX_TF	2
+IMP_TAX_TF	3
+IMP_TAX_TF	4
+##### VI_JobExportElements
+JobName	SequenceNo
+##### VI_JobExportSelection
+JobName	SequenceNo
+##### VI_JobImportSelection
+!ERROR	Table is not accessible
