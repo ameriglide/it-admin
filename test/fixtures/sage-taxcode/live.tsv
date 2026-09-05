@@ -1,0 +1,32 @@
+##### SY_SalesTaxCode
+TaxCode	TaxCodeDesc	TaxCodeShortDesc	TaxOnTax	TaxClassForTaxOnTax	TaxLimit	ExpenseToVendorItem	RetentionTaxable
+AL	AL	AL	N		0.000000	N	N
+CA FRESNO	CA FRESNO	CA FRE	N		0.000000	N	N
+CA MODESTO	CA MODESTO	CA MOD	N		0.000000	N	N
+MO ODESSA	MO ODESSA	MO ODE	N		0.000000	N	N
+##### SY_SalesTaxCodeDetail
+TaxCode	TaxClass	SalesTaxable	PurchasesTaxable	TaxRate	NonRecoverablePercent
+AL	TX	Y	N	4	0.000000
+CA FRESNO	TX	Y	N	0.375	0.000000
+CA FRESNO	TF	Y	N	0.375	0.000000
+CA MODESTO	TX	Y	N	0.5	0.000000
+CA MODESTO	TF	Y	N	0.5	0.000000
+MO ODESSA	TX	Y	N	2.5	0.000000
+MO ODESSA	TF	N	N	0	0.000000
+MO ODESSA	NT	N	N	0	0.000000
+##### SY_SalesTaxClass
+TaxClass	TaxClassDesc
+TX	Taxable
+TF	Taxable Freight
+NT	Non Taxable
+##### VI_JobHeader
+JobName	JobType	LastCompanyCode	TableName	JobLongDescription
+OLD_JOB	I	AD1	CI_Item	old
+##### VI_JobImportElements
+JobName	SequenceNo
+##### VI_JobExportElements
+JobName	SequenceNo
+##### VI_JobExportSelection
+JobName	SequenceNo
+##### VI_JobImportSelection
+JobName	SequenceNo

@@ -1,0 +1,127 @@
+// Builds the AG-806 merge plan: what the Aug 28 snapshot has that the live
+// Sage system lacks, without planning anything that would overwrite a
+// post-cutover edit. See it-admin-docs/specs/2026-09-04-sage-taxcode-merge-design.md.
+import type { Table } from "./tsv";
+
+export interface TaxHeader { TaxCode: string; TaxCodeDesc: string; TaxCodeShortDesc: string; TaxOnTax: string; TaxClassForTaxOnTax: string; TaxLimit: string; ExpenseToVendorItem: string; RetentionTaxable: string; }
+export interface TaxLine { TaxCode: string; TaxClass: string; SalesTaxable: string; PurchasesTaxable: string; TaxRate: string; NonRecoverablePercent: string; }
+export interface LineUpdate { key: { TaxCode: string; TaxClass: string }; from: TaxLine; to: TaxLine; changed: string[]; }
+export interface HeaderChange { key: { TaxCode: string }; from: TaxHeader; to: TaxHeader; changed: string[]; }
+export interface ViJobGap { JobName: string; JobType: string; LastCompanyCode: string; TableName: string; JobLongDescription: string; elementCounts: Record<string, number>; }
+export interface Plan {
+  generatedAt: string; snapshotFile: string; liveFile: string;
+  addHeaders: TaxHeader[]; addLines: TaxLine[]; updateLines: LineUpdate[];
+  liveOnlyHeaders: TaxHeader[]; liveOnlyLines: TaxLine[]; changedHeaders: HeaderChange[];
+  orphanLines: TaxLine[];
+  viJobsMissing: ViJobGap[];
+  viJobsLiveOnly: string[];
+}
+
+const HEADER_COLS: (keyof TaxHeader)[] = ["TaxCode", "TaxCodeDesc", "TaxCodeShortDesc", "TaxOnTax", "TaxClassForTaxOnTax", "TaxLimit", "ExpenseToVendorItem", "RetentionTaxable"];
+const LINE_COLS: (keyof TaxLine)[] = ["TaxCode", "TaxClass", "SalesTaxable", "PurchasesTaxable", "TaxRate", "NonRecoverablePercent"];
+const NUMERIC = new Set(["TaxRate", "NonRecoverablePercent", "TaxLimit"]);
+const VI_CHILD_TABLES = ["VI_JobImportElements", "VI_JobExportElements", "VI_JobExportSelection", "VI_JobImportSelection"];
+const VI_OPTIONAL = new Set(["VI_JobExportSelection", "VI_JobImportSelection"]);
+
+export function sameValue(column: string, a: string, b: string): boolean {
+  if (NUMERIC.has(column)) {
+    const x = Number(a), y = Number(b);
+    if (!Number.isNaN(x) && !Number.isNaN(y)) return x === y;
+  }
+  return a === b;
+}
+
+function required(tables: Map<string, Table>, name: string, side: string): Table {
+  const t = tables.get(name);
+  if (!t) throw new Error(`${side} dump has no ${name} section`);
+  if (t.error) throw new Error(`${side} dump: ${name} failed: ${t.error}`);
+  return t;
+}
+
+function optional(tables: Map<string, Table>, name: string): Table | undefined {
+  const t = tables.get(name);
+  return t && !t.error ? t : undefined;
+}
+
+function pick<T>(row: Record<string, string>, cols: (keyof T)[]): T {
+  const out: Record<string, string> = {};
+  for (const c of cols) out[c as string] = row[c as string] ?? "";
+  return out as unknown as T;
+}
+
+function byKey<T>(rows: T[], key: (r: T) => string): Map<string, T> {
+  const m = new Map<string, T>();
+  for (const r of rows) m.set(key(r), r);
+  return m;
+}
+
+function changedColumns<T>(a: T, b: T, cols: (keyof T)[]): string[] {
+  return cols.filter((c) => !sameValue(c as string, a[c] as unknown as string, b[c] as unknown as string)).map((c) => c as string);
+}
+
+const headerKey = (h: TaxHeader) => h.TaxCode;
+const lineKey = (l: TaxLine) => `${l.TaxCode}\u0000${l.TaxClass}`;
+const sortHeaders = (a: TaxHeader, b: TaxHeader) => a.TaxCode.localeCompare(b.TaxCode);
+const sortLines = (a: TaxLine, b: TaxLine) => a.TaxCode.localeCompare(b.TaxCode) || a.TaxClass.localeCompare(b.TaxClass);
+
+export function buildPlan(snapshot: Map<string, Table>, live: Map<string, Table>, meta: { snapshotFile: string; liveFile: string; now?: Date }): Plan {
+  const sHeaders = required(snapshot, "SY_SalesTaxCode", "snapshot").rows.map((r) => pick<TaxHeader>(r, HEADER_COLS));
+  const lHeaders = required(live, "SY_SalesTaxCode", "live").rows.map((r) => pick<TaxHeader>(r, HEADER_COLS));
+  const sLines = required(snapshot, "SY_SalesTaxCodeDetail", "snapshot").rows.map((r) => pick<TaxLine>(r, LINE_COLS));
+  const lLines = required(live, "SY_SalesTaxCodeDetail", "live").rows.map((r) => pick<TaxLine>(r, LINE_COLS));
+  const sVi = required(snapshot, "VI_JobHeader", "snapshot");
+  const lVi = required(live, "VI_JobHeader", "live");
+  required(live, "VI_JobImportElements", "live");
+  required(live, "VI_JobExportElements", "live");
+
+  const sH = byKey(sHeaders, headerKey), lH = byKey(lHeaders, headerKey);
+  const sL = byKey(sLines, lineKey), lL = byKey(lLines, lineKey);
+
+  const addHeaders = sHeaders.filter((h) => !lH.has(h.TaxCode)).sort(sortHeaders);
+  const liveOnlyHeaders = lHeaders.filter((h) => !sH.has(h.TaxCode)).sort(sortHeaders);
+  const changedHeaders: HeaderChange[] = [];
+  for (const h of sHeaders) {
+    const other = lH.get(h.TaxCode);
+    if (!other) continue;
+    const changed = changedColumns(h, other, HEADER_COLS);
+    if (changed.length) changedHeaders.push({ key: { TaxCode: h.TaxCode }, from: other, to: h, changed });
+  }
+  changedHeaders.sort((a, b) => a.key.TaxCode.localeCompare(b.key.TaxCode));
+
+  const addingHeader = new Set(addHeaders.map(headerKey));
+  const addLines: TaxLine[] = [], orphanLines: TaxLine[] = [], updateLines: LineUpdate[] = [];
+  for (const line of sLines) {
+    const other = lL.get(lineKey(line));
+    if (other) {
+      const changed = changedColumns(line, other, LINE_COLS);
+      if (changed.length) updateLines.push({ key: { TaxCode: line.TaxCode, TaxClass: line.TaxClass }, from: other, to: line, changed });
+      continue;
+    }
+    if (addingHeader.has(line.TaxCode) || lH.has(line.TaxCode)) addLines.push(line);
+    else orphanLines.push(line);
+  }
+  addLines.sort(sortLines); orphanLines.sort(sortLines);
+  updateLines.sort((a, b) => a.key.TaxCode.localeCompare(b.key.TaxCode) || a.key.TaxClass.localeCompare(b.key.TaxClass));
+  const liveOnlyLines = lLines.filter((l) => !sL.has(lineKey(l))).sort(sortLines);
+
+  const liveJobs = new Set(lVi.rows.map((r) => r.JobName));
+  const viJobsMissing: ViJobGap[] = [];
+  for (const r of sVi.rows) {
+    if (liveJobs.has(r.JobName)) continue;
+    const elementCounts: Record<string, number> = {};
+    for (const name of VI_CHILD_TABLES) {
+      const t = VI_OPTIONAL.has(name) ? optional(snapshot, name) : required(snapshot, name, "snapshot");
+      elementCounts[name] = t ? t.rows.filter((x) => x.JobName === r.JobName).length : 0;
+    }
+    viJobsMissing.push({ JobName: r.JobName, JobType: r.JobType ?? "", LastCompanyCode: r.LastCompanyCode ?? "", TableName: r.TableName ?? "", JobLongDescription: r.JobLongDescription ?? "", elementCounts });
+  }
+  viJobsMissing.sort((a, b) => a.JobName.localeCompare(b.JobName));
+
+  const snapshotJobs = new Set(sVi.rows.map((r) => r.JobName));
+  const viJobsLiveOnly = lVi.rows.map((r) => r.JobName).filter((n) => !snapshotJobs.has(n)).sort((a, b) => a.localeCompare(b));
+
+  return {
+    generatedAt: (meta.now ?? new Date()).toISOString(), snapshotFile: meta.snapshotFile, liveFile: meta.liveFile,
+    addHeaders, addLines, updateLines, liveOnlyHeaders, liveOnlyLines, changedHeaders, orphanLines, viJobsMissing, viJobsLiveOnly,
+  };
+}

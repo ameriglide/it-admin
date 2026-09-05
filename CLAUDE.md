@@ -43,22 +43,23 @@ pointer.
 
 - `bin/` — bash entry points: `copy` (interactive clipboard helper for
   workstation setup), `cost-allocation`, `groups`, `onboard`, `offboard`,
-  `reset-user`, `rotate-ssm-activation`, `sip-password`.
+  `reset-user`, `rotate-ssm-activation`, `sage-taxcode-diff`, `sip-password`.
 - `src/` — TypeScript run by Bun: `cost-allocation/`, `offboard/`, `onboard/`,
   and shared `lib/` (`google-groups.ts`, `load-env.ts`).
-- `scripts/` — PowerShell for Windows workstations and servers, plus a couple
+- `scripts/` — PowerShell for Windows workstations and servers (`sage-taxcode-{lib,dump,apply}.ps1` for Sage system-table recovery), plus a couple
   of shell installers.
 - `ops/` — systemd units and their scripts (currently the headscale zombie
   detector).
 - `docs/runbooks/` — operator runbooks. `docs/superpowers/` — pointer only.
-- `test/` — Bun tests (`*.test.ts`) plus a Pester suite
-  (`watchdog-core.Tests.ps1`).
+- `test/` — Bun tests (`*.test.ts`) plus Pester suites
+  (`watchdog-core.Tests.ps1`, `sage-taxcode-lib.Tests.ps1`, `sage-taxcode-scripts.Tests.ps1`).
 
 ## Commands
 
 ```bash
 bun install
 bun test            # runs the *.test.ts suites under test/
+pwsh -c "Invoke-Pester -Path test -Output Detailed"   # runs the Pester suites
 ```
 
 Environment is loaded by `source ~/Projects/ag-admin/load-env.sh` (or, inside
@@ -116,3 +117,12 @@ See `docs/runbooks/server-monitoring.md` and the "Server monitoring" entries in
 `bin/copy`. Better Stack token scoping and its API quirks are in mem0
 (`app_id=it-admin`, topic `betterstack-team-scoped-tokens`) rather than
 repeated here.
+
+## Sage system-table gap (AG-806)
+
+_last verified: 2026-09-04_
+
+The Aug 29, 2026 Sage cutover did not re-migrate `MAS_System`; sales tax
+codes, class lines, and VI jobs changed between June 16 and Aug 28 were
+restored from the Aug 28 snapshot with `scripts/sage-taxcode-*.ps1` and
+`bin/sage-taxcode-diff`. Procedure: `docs/runbooks/sage-system-table-gap.md`.
