@@ -12,7 +12,7 @@ param(
     [string]$SnapshotDir = 'C:\sage-migrate\extract\MAS90',
     [string]$SageHome = 'C:\Sage\Sage 100\MAS90\Home'
 )
-$Script:Revision = ""
+$Script:Revision = "a388c3b"
 $ErrorActionPreference = 'Stop'
 . (Join-Path $PSScriptRoot 'sage-taxcode-lib.ps1')
 
@@ -55,7 +55,7 @@ try {
                 }
             } finally { $rd.Close() }
         } catch {
-            "!ERROR`t$($_.Exception.Message)"
+            "!ERROR`t$(ConvertTo-TsvValue $_.Exception.Message)"
         }
     }
 } finally { $cxn.Close() }

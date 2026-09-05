@@ -51,14 +51,15 @@ pointer.
 - `ops/` — systemd units and their scripts (currently the headscale zombie
   detector).
 - `docs/runbooks/` — operator runbooks. `docs/superpowers/` — pointer only.
-- `test/` — Bun tests (`*.test.ts`) plus a Pester suite
-  (`watchdog-core.Tests.ps1`).
+- `test/` — Bun tests (`*.test.ts`) plus Pester suites
+  (`watchdog-core.Tests.ps1`, `sage-taxcode-lib.Tests.ps1`, `sage-taxcode-scripts.Tests.ps1`).
 
 ## Commands
 
 ```bash
 bun install
 bun test            # runs the *.test.ts suites under test/
+pwsh -c "Invoke-Pester -Path test -Output Detailed"   # runs the Pester suites
 ```
 
 Environment is loaded by `source ~/Projects/ag-admin/load-env.sh` (or, inside

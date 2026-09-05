@@ -21,8 +21,11 @@ Scheduler on that host hangs anyway.
    (`scp -O`, see the mem0 note on scp and these hosts).
 2. Dump both sides:
 
-       powershell -NoProfile -ExecutionPolicy Bypass -File sage-taxcode-dump.ps1 -Source snapshot > snapshot.tsv
-       powershell -NoProfile -ExecutionPolicy Bypass -File sage-taxcode-dump.ps1 -Source live > live.tsv
+       powershell -NoProfile -ExecutionPolicy Bypass -File sage-taxcode-dump.ps1 -Source snapshot | Out-File -Encoding ascii snapshot.tsv
+       powershell -NoProfile -ExecutionPolicy Bypass -File sage-taxcode-dump.ps1 -Source live | Out-File -Encoding ascii live.tsv
+
+   Use `Out-File -Encoding ascii`, not `>`: under Windows PowerShell 5.1 the
+   redirection writes UTF-16, which the diff cannot read.
 
 3. Copy the two TSVs back and build the plan:
 
@@ -54,9 +57,10 @@ Scheduler on that host hangs anyway.
 
 There is no business object for job definitions, so the four VI files are
 copied during a maintenance window. This is safe only while the live VI
-tables have not changed since June: the diff summary's `VI jobs missing`
-list must show snapshot-only jobs and nothing else (no `live only`,
-no `changed`).
+tables have not changed since June: the diff summary must show
+`VI jobs only on live (would be DESTROYED by a file copy): none`; if it
+names any job, stop, because the wholesale copy would delete that job, and
+re-create the missing jobs by hand instead.
 
 1. Announce the window; everyone out of Sage; stop the Sage 100 services
    (Sage 100 Advanced application server and `pvxiosvr`).

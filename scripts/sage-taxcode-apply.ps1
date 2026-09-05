@@ -17,11 +17,12 @@ param(
     [string]$SageHome = 'C:\Sage\Sage 100\MAS90\Home',
     [string]$Log = (Join-Path $env:ProgramData 'ag-admin\sage-taxcode-apply.log')
 )
-$Script:Revision = "27a76a2"
+$Script:Revision = "643f1cd"
 $ErrorActionPreference = 'Stop'
 . (Join-Path $PSScriptRoot 'sage-taxcode-lib.ps1')
 
-New-Item -ItemType Directory -Path (Split-Path $Log -Parent) -Force | Out-Null
+$logDir = Split-Path $Log -Parent
+if ($logDir) { New-Item -ItemType Directory -Path $logDir -Force | Out-Null }
 function Write-Log([string]$Line) { Add-Content -Path $Log -Value $Line; Write-Host $Line }
 
 function Connect-Sage {

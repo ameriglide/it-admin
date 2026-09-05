@@ -89,6 +89,16 @@ describe("buildPlan", () => {
     const brokenLive = parseDump(dump({ headers: [h("AL")], lines: [l("AL", "TX", "Y", "4.000000")] }).replace("##### VI_JobExportElements\nJobName\tSequenceNo", "##### VI_JobExportElements\n!ERROR\tboom"));
     expect(() => buildPlan(snapshot, brokenLive, { snapshotFile: "s", liveFile: "l" })).toThrow(/live dump: VI_JobExportElements/);
   });
+  test("VI jobs present only on live are reported as viJobsLiveOnly; the fixture plan has none", () => {
+    expect(plan.viJobsLiveOnly).toEqual([]);
+    const liveWithExtra = parseDump(dump({
+      headers: [h("AL"), h("AZ MESA"), h("MO ODESSA")],
+      lines: [l("AL", "TX", "Y", "4.000000"), l("AZ MESA", "TX", "Y", "2.000000"), l("AZ MESA", "TF", "Y", "2"), l("MO ODESSA", "TX", "Y", "2.500000")],
+      vi: ["OLD_JOB\tI\tAD1\tCI_Item\told", "LIVE_ONLY_JOB\tI\tAD1\tCI_Item\tnew"], viImportSel: "error",
+    }));
+    const p = buildPlan(snapshot, liveWithExtra, { snapshotFile: "s", liveFile: "l" });
+    expect(p.viJobsLiveOnly).toEqual(["LIVE_ONLY_JOB"]);
+  });
   test("a header on both sides with a different description is reported, never planned", () => {
     const liveChanged = parseDump(dump({ headers: [h("AL", "ALABAMA STATE"), h("AZ MESA"), h("MO ODESSA")], lines: [l("AL", "TX", "Y", "4.000000")] }));
     const p = buildPlan(snapshot, liveChanged, { snapshotFile: "s", liveFile: "l" });

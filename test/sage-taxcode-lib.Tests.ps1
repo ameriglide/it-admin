@@ -51,7 +51,7 @@ Describe 'ConvertTo-SageYesNo' {
 
 Describe 'Test-PlanShape' {
     It 'accepts a plan with every bucket' {
-        $plan = [pscustomobject]@{ addHeaders = @(); addLines = @(); updateLines = @(); liveOnlyHeaders = @(); liveOnlyLines = @(); changedHeaders = @(); viJobsMissing = @() }
+        $plan = [pscustomobject]@{ addHeaders = @(); addLines = @(); updateLines = @(); liveOnlyHeaders = @(); liveOnlyLines = @(); changedHeaders = @(); viJobsMissing = @(); viJobsLiveOnly = @() }
         Test-PlanShape $plan | Should -BeTrue
     }
     It 'names the missing bucket' {

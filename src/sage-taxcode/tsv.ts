@@ -12,6 +12,7 @@ const MARKER = "##### ";
 export function parseDump(text: string): Map<string, Table> {
   const tables = new Map<string, Table>();
   let current: Table | undefined;
+  text = text.replace(/^\uFEFF/, "");
   const lines = text.split(/\r?\n/);
   for (const line of lines) {
     if (line.startsWith(MARKER)) {

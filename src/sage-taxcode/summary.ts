@@ -27,5 +27,6 @@ export function summarize(plan: Plan): string {
   out.push(`changed headers (NOT planned): ${plan.changedHeaders.length ? plan.changedHeaders.map((c) => `${c.key.TaxCode} [${c.changed.join(", ")}]`).join("; ") : "none"}`);
   if (plan.orphanLines.length) out.push(`orphan lines (NOT planned): ${plan.orphanLines.map((l) => `${l.TaxCode}/${l.TaxClass}`).join(", ")}`);
   out.push(`VI jobs missing: ${plan.viJobsMissing.length ? plan.viJobsMissing.map((j) => `${j.JobName} (${j.JobType}, ${j.LastCompanyCode}, ${j.TableName}) elements ${Object.entries(j.elementCounts).filter(([, n]) => n > 0).map(([t, n]) => `${t}=${n}`).join(" ")}`).join("\n                 ") : "none"}`);
+  out.push(`VI jobs only on live (would be DESTROYED by a file copy): ${plan.viJobsLiveOnly.length ? plan.viJobsLiveOnly.join(", ") : "none"}`);
   return out.join("\n");
 }

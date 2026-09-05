@@ -39,4 +39,20 @@ describe("summarize", () => {
   test("says none when nothing changed", () => {
     expect(text).toContain("changed headers (NOT planned): none");
   });
+  test("names VI jobs present only on live, or none", () => {
+    expect(text).toContain("VI jobs only on live (would be DESTROYED by a file copy): none");
+  });
+  test("truncates update lines past 50, showing the first 10 and a count of the rest", () => {
+    const bigPlan = {
+      ...plan,
+      updateLines: Array.from({ length: 51 }, (_, i) => ({
+        ...plan.updateLines[0],
+        key: { TaxCode: `ZZ CODE ${String(i).padStart(2, "0")}`, TaxClass: "TF" },
+      })),
+    };
+    const bigText = summarize(bigPlan);
+    const shownLines = bigText.split("\n").filter((l) => l.startsWith("  ZZ CODE "));
+    expect(shownLines).toHaveLength(10);
+    expect(bigText).toContain("  ... 41 more");
+  });
 });

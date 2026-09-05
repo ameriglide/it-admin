@@ -37,6 +37,11 @@ describe("parseDump", () => {
     const t = parseDump("##### T\nA\tB\tC\nx\ty\n");
     expect(t.get("T")!.rows[0]).toEqual({ A: "x", B: "y", C: "" });
   });
+  test("strips a leading UTF-8 BOM before splitting", () => {
+    const t = parseDump("\uFEFF##### T\nA\nx\n");
+    expect([...t.keys()]).toEqual(["T"]);
+    expect(t.get("T")!.rows).toHaveLength(1);
+  });
   test("throws on text before the first marker", () => {
     expect(() => parseDump("garbage\n##### T\nA\n")).toThrow(/before the first/);
   });
