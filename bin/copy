@@ -279,21 +279,6 @@ zoiper_setup() {
   echo "$cmd"
 }
 
-sage_amg_onboard() {
-  local user
-  user=$(gum input --placeholder "first.last" --header "sage-amg onboard: enter username" </dev/tty)
-  [[ -z "$user" ]] && return 1
-
-  local pass
-  pass=$(gum input --password --header "Password (use the same one set on their Google account)" </dev/tty)
-  [[ -z "$pass" ]] && return 1
-
-  # Escape single-quotes for safe embedding inside PS '...' literal.
-  local pass_escaped="${pass//\'/\'\'}"
-
-  echo "Set-ExecutionPolicy Bypass -Scope Process -Force; irm https://raw.githubusercontent.com/ameriglide/it-admin/main/scripts/onboard-sage-amg-user.ps1 -OutFile \$env:TEMP\\onboard-sage-amg-user.ps1; & \$env:TEMP\\onboard-sage-amg-user.ps1 -SamName ${user} -Password '${pass_escaped}' -HeadscaleUrl \"${HEADSCALE_URL:-}\""
-}
-
 install_tailscale() {
   local key="${TAILSCALE_AUTH_KEY:-}"
   if [[ -z "$key" ]]; then
@@ -577,7 +562,6 @@ LABELS=(
   "Remote agents — install Action1 + SSM (work) / SSM only (personal)..."
   "Tailscale — join network (from .env)"
   "Generate new Tailscale key (SSH → headscale, saves to 1Password)..."
-  "sage-amg — onboard new user..."
   "Server monitoring — install watchdog + heartbeat (+ Vector) on a sage-* server..."
   "Server monitoring — provision Better Stack Vector source (saves token to 1Password)..."
   "Server monitoring — provision shared Vector source for Linux hosts (saves token + ingest to 1Password)..."
@@ -596,7 +580,6 @@ dispatch() {
     "Tailscale — install + join (only)")        install_tailscale ;;
     "Remote agents — install Action1 + SSM (work) / SSM only (personal)...") install_remote_agents ;;
     "Zoiper — install + configure...")             zoiper_setup ;;
-    "sage-amg — onboard new user...")           sage_amg_onboard ;;
     "Server monitoring — install watchdog + heartbeat (+ Vector) on a sage-* server...") install_server_monitoring ;;
     "Server monitoring — provision Better Stack Vector source (saves token to 1Password)...") provision_vector_source ;;
     "Server monitoring — provision shared Vector source for Linux hosts (saves token + ingest to 1Password)...") provision_linux_vector_source ;;
