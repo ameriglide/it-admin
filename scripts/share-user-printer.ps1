@@ -418,12 +418,18 @@ Next, from the Sage host (step 5), confirm it can reach this workstation:
     Test-NetConnection $tailscaleIp -Port 445
 
 Then $AccountName -- and nobody else -- does this INSIDE their own Sage
-desktop, reached through the Guacamole portal (steps 6-7):
+desktop, reached through the Guacamole portal (steps 6-7). THE ORDER IS THE
+FIX -- do not use Win+R to the share; that forms a credential conflict
+(Win32 1219) that loops forever:
 
-    Win + R  ->  $unc
-    Sign in as : $AccountName
-    Password   : the one they use on this physical workstation
-    Right-click the printer -> Connect
+    1. Start -> user icon -> Sign out  (a full Windows sign-out, not the tab)
+    2. Sign back in. Touch nothing printer-related yet.
+    3. cmdkey /add:$tailscaleIp /user:$AccountName /pass
+       (prompts for this account's workstation password)
+    4. rundll32 printui.dll,PrintUIEntry /in /n $unc
+       Run it ONCE. Error 0x775 = the account is locked on this
+       workstation; unlock and reset it here, do not retry there.
+    5. Get-Printer | Select-Object Name,Type,ComputerName   -> Type Connection
 
 Do NOT do this for them over SSM or with a server-wide install. That runs as
 the Sage-side account, writes to HKLM, and exposes the printer to every Sage
