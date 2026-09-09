@@ -30,7 +30,7 @@ BETTERSTACK_POLICY_ID=114897
 REQUESTER_EMAIL=it@ameriglide.com
 HEADSCALE_CONTAINER=headscale
 FAILS_THRESHOLD=2
-MONITORED_NODES=web phenix headscale db sage-amg sage-iai sage-server amg-bjx iai-bjx tailscale-router-b asterisk-pbx asterisk-pbx-nyc3 amg-blog youtrack
+MONITORED_NODES=web phenix headscale db sage-iai sage-server amg-bjx iai-bjx tailscale-router-b asterisk-pbx asterisk-pbx-nyc3 amg-blog youtrack
 EOF
 sudo chmod 600 /etc/headscale-zombie-detector.env
 
@@ -50,7 +50,7 @@ bash test-headscale-zombie-detector.sh
 
 # Read-only classification on the host (real pings, no incidents, no state write):
 sudo DRY_RUN=1 \
-  MONITORED_NODES="web phenix headscale db sage-amg sage-iai sage-server amg-bjx iai-bjx tailscale-router-b asterisk-pbx asterisk-pbx-nyc3 amg-blog youtrack" \
+  MONITORED_NODES="web phenix headscale db sage-iai sage-server amg-bjx iai-bjx tailscale-router-b asterisk-pbx asterisk-pbx-nyc3 amg-blog youtrack" \
   /opt/headscale-zombie-detector/headscale-zombie-detector.sh
 ```
 
