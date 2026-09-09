@@ -1,6 +1,6 @@
 # Per-user printers for IAI users on the Sage portal
 
-_last verified: 2026-08-31_
+_last verified: 2026-09-09_
 
 IAI moved off remote desktop to the Guacamole portal. Sage now runs on a shared
 RDS session host, so **anything installed server-wide is visible to all IAI
@@ -156,25 +156,103 @@ one.
 
 ## Steps 6-7: the user, in their own Sage desktop
 
+**The order below is the whole fix. Do not reorder it.**
+
 Have them log into Sage through the Guacamole portal, then **in that session**:
 
-1. `Win + R` -> `\\<workstation-tailnet-ip>\<share-name>`
-2. Sign in as the account from above, with the password they use on their
-   physical workstation.
-3. Open the printer share, click **Connect**.
+1. **Sign out of Windows fully.** Start -> user icon -> **Sign out**. Closing
+   the browser tab or disconnecting is not enough. If the sign-out hangs for
+   more than a couple of minutes, reload the Guacamole tab first (it often
+   freezes on the last frame); if it is genuinely stuck, `logoff <id>` the
+   session from an admin session on the Sage host.
+2. Sign back in through Guacamole. **Do not touch anything printer-related
+   yet** -- no `Win + R`, no Settings, no printer dialog.
+3. First thing, save the credential:
+
+   ```
+   cmdkey /add:<workstation-tailnet-ip> /user:WORKSTATION01\jdoe /pass
+   ```
+
+   It prompts for the workstation account's password; nothing goes on the
+   command line.
+4. Then connect:
+
+   ```
+   rundll32 printui.dll,PrintUIEntry /in /n \\<workstation-tailnet-ip>\<share-name>
+   ```
+
+   **Run this once.** If it prompts for a password or errors, stop and read
+   the error -- do not retry (see the lockout note below).
+5. Verify:
+
+   ```
+   Get-Printer | Select-Object Name,Type,ComputerName
+   ```
+
+   The connection appears as `\\<workstation-tailnet-ip>\<printer-name>` with
+   Type `Connection`. Windows labels it with the printer's own name, not the
+   share name; that is normal.
 
 Then confirm it appears in Sage's print dialog for that user, and that a
-**different** Sage user neither sees it in their print dialog nor can open the
+**different** Sage user neither sees it in `Get-Printer` nor can open the
 share.
+
+### Why the order matters (Win32 error 1219)
+
+The obvious way -- `Win + R` to the UNC path, then type the credentials when
+asked -- fails on this fleet, silently at first and then with an endless loop
+of "credentials conflict with an existing set of credentials / the existing
+set cannot be deleted". Nothing in `cmdkey /list` or `net use` shows the
+conflicting credential, because there is none.
+
+What actually happens: the redirector first tries the share as the user's
+implicit Sage identity (`SAGE\<user>`), which does not exist on the
+workstation. The failed attempt leaves a half-open connection to the
+workstation inside the logon session. Supplying the real workstation account
+is then a second identity to the same server from one session, which Windows
+refuses with `ERROR_SESSION_CREDENTIAL_CONFLICT` (1219). `printui` tries to
+tear down the existing connection, cannot address an implicit one, and loops.
+
+The sign-out is the only thing that clears the half-open connection. Saving
+the credential with `cmdkey` **before** the first contact makes the redirector
+use the workstation account from the first packet, so the Sage identity is
+never tried and no conflict forms. A user who happened to get a credential
+saved during earlier failed attempts will connect without any of this -- which
+is why one user "just worked" and the rest did not.
+
+### The lockout trap (error 0x775)
+
+`Operation failed with error 0x00000775` from `printui` is
+`ERROR_ACCOUNT_LOCKED_OUT`. The workstation account is locked; no password will
+work until it is unlocked, so every retry is wasted and re-arms the lockout.
+
+Windows 11 22H2+ locks a local account after 10 bad passwords in 10 minutes by
+default, and a **saved** credential with a wrong password is retried several
+times per connection attempt -- one `printui` run can trip it. On the
+workstation, elevated:
+
+```powershell
+net user jdoe                       # "Account active   Locked" confirms it
+$u=[ADSI]'WinNT://./jdoe,user'; $u.IsAccountLocked=$false; $u.SetInfo()
+net user jdoe *                     # reset to a known password; prompts twice
+net user jdoe /passwordreq:yes      # blank passwords cannot log on over the network
+```
+
+Then delete the bad saved credential in the Sage session
+(`cmdkey /delete:<workstation-tailnet-ip>`) and restart from step 1 of this
+section with the new password.
 
 ## What breaks this later
 
 - **The workstation sleeps or is powered off.** The share is only reachable
   while the machine is awake on the tailnet. Printing fails at the moment of
   use, not at setup. Laptops are the usual offender.
-- **The user changes their Windows password.** The credential Windows stored in
+- **The workstation account's password changes.** The credential saved in
   step 6 goes stale and printing starts failing with a credential prompt buried
-  in the Sage session. Re-run step 6; no workstation change is needed.
+  in the Sage session. Re-run step 6 from the sign-out; no workstation change
+  is needed. Note that a stale saved credential is retried automatically and
+  will lock the workstation account within minutes -- check for the lockout
+  before assuming the password is wrong.
 - **Tailscale restarts and the IP changes.** Rare with a stable tailnet, but the
   share is addressed by IP, so the stored connection breaks. Re-run step 6 with
   the new address.
