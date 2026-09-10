@@ -239,6 +239,19 @@ Have them log into Sage through the Guacamole portal, then **in that session**:
    Type `Connection`. Windows labels it with the printer's own name, not the
    share name; that is normal.
 
+6. **Make it the default.** Every Sage account starts with the "Sage 100
+   Paperless Office" driver as its default, so without this the user has to
+   pick their real printer on every print and will report "the printer does
+   not work". In the same session:
+
+   ```
+   rundll32 printui.dll,PrintUIEntry /y /n "\\<workstation-tailnet-ip>\<printer-name>"
+   ```
+
+   ("Let Windows manage my default printer" is already off on the Sage host,
+   so it sticks.) Then have the user close Sage 100 and open it again -- Sage
+   reads the default printer at startup.
+
 Then confirm it appears in Sage's print dialog for that user, and that a
 **different** Sage user neither sees it in `Get-Printer` nor can open the
 share.
