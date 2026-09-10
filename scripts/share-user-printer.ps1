@@ -255,21 +255,29 @@ $keepSids = @(
     'S-1-3-0'         # CREATOR OWNER (owns your own documents)
 )
 # Broad print grants to strip: Everyone, Authenticated Users, INTERACTIVE,
-# Users, and the app-container SIDs Windows 10/11 adds to printers.
+# Users. These are the ones a remote SMB session can actually carry.
+#
+# NOT stripped: the app-container SIDs S-1-15-2-1 / S-1-15-2-2 (ALL
+# [RESTRICTED] APPLICATION PACKAGES). They exist only in local app-container
+# tokens, never in an SMB session, so removing them grants nothing to another
+# Sage user -- and it breaks local printing for the machine's own user on any
+# v4 driver, whose print-support component (e.g. HP's HPPrinterControl) runs
+# in an app container and needs them to open the printer. Learned on the HP
+# OfficeJet Pro 7740: "copies fine, will not print from my PC".
 $stripSids = @(
     'S-1-1-0',        # Everyone
     'S-1-5-11',       # Authenticated Users
     'S-1-5-4',        # INTERACTIVE
-    'S-1-5-32-545',   # BUILTIN\Users
-    'S-1-15-2-1',     # ALL APPLICATION PACKAGES
-    'S-1-15-2-2'      # ALL RESTRICTED APPLICATION PACKAGES
+    'S-1-5-32-545'    # BUILTIN\Users
 )
+$appContainerSids = @('S-1-15-2-1', 'S-1-15-2-2')
 
 $kept = @(); $removed = @()
 foreach ($ace in $sd.DACL) {
     $s = $ace.Trustee.SIDString
     if ($keepSids -contains $s) { $kept += $ace }
     elseif ($stripSids -contains $s) { $removed += $s }
+    elseif ($appContainerSids -contains $s) { $kept += $ace }   # local-only, see above
     elseif ($s -eq $sid) { }            # rebuilt below, cleanly
     else { $kept += $ace }              # unknown principal: leave it, report it
 }
@@ -314,8 +322,6 @@ $sidNames = @{
     'S-1-5-11'     = 'Authenticated Users'
     'S-1-5-4'      = 'INTERACTIVE'
     'S-1-5-32-545' = 'BUILTIN\Users'
-    'S-1-15-2-1'   = 'ALL APPLICATION PACKAGES'
-    'S-1-15-2-2'   = 'ALL RESTRICTED APPLICATION PACKAGES'
 }
 $removedUnique = @($removed | Select-Object -Unique)
 if ($removedUnique.Count -gt 0) {
@@ -324,7 +330,7 @@ if ($removedUnique.Count -gt 0) {
 } else {
     Note "No broad print grants were present."
 }
-Note "Preserved: Administrators, SYSTEM, CREATOR OWNER"
+Note "Preserved: Administrators, SYSTEM, CREATOR OWNER, ALL APPLICATION PACKAGES (local app-container printing; not reachable over SMB)"
 
 # One SID normally holds several ACEs on a printer -- one on the object plus
 # inherit-only ones for documents -- so report distinct principals, not raw rows.
@@ -344,6 +350,20 @@ $unknown    = @($extraSids | Where-Object { $_ -notlike 'S-1-15-3-*' })
 
 if ($capability.Count -gt 0) {
     Note "$($capability.Count) app-container capability SID(s) left in place (normal on Windows printers; local Store-app printing only, not reachable over SMB)."
+}
+# Accounts local to THIS machine (same SID prefix as the grantee) are the
+# machine's own users -- typically the person who sits at it, who installed the
+# printer and prints locally. They keep their rights. Another Sage user could
+# only use one of these to reach the share by knowing that account's password,
+# which is the same trust boundary as the grantee itself. Report, do not block.
+$machinePrefix = $sid -replace '-\d+$', ''
+$localAccts = @($unknown | Where-Object { $_ -like "$machinePrefix-*" })
+$unknown    = @($unknown | Where-Object { $_ -notlike "$machinePrefix-*" })
+if ($localAccts.Count -gt 0) {
+    $names = $localAccts | ForEach-Object {
+        try { (New-Object System.Security.Principal.SecurityIdentifier $_).Translate([System.Security.Principal.NTAccount]).Value } catch { $_ }
+    }
+    Note "Local account(s) on this machine keep their existing rights (its own user, printing locally): $($names -join ', ')"
 }
 if ($unknown.Count -gt 0) {
     Bad "Unexpected principal(s) still hold rights on this printer -- review: $($unknown -join ', ')"

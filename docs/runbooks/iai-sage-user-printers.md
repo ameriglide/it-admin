@@ -95,8 +95,19 @@ Add `-WhatIfOnly` first to see the plan. Override the guesses when needed:
 It confirms the spooler and printer are healthy, reports the workstation's
 tailnet IP, shares the printer under a distinct name, rewrites the printer DACL
 to grant Print to that one account (stripping Everyone, Authenticated Users,
-Users, INTERACTIVE and the app-container SIDs, while preserving Administrators,
-SYSTEM and CREATOR OWNER), and scopes inbound TCP 445 to the tailnet.
+Users and INTERACTIVE, while preserving Administrators, SYSTEM, CREATOR OWNER,
+the machine's own local accounts and the app-container SIDs), and scopes
+inbound TCP 445 to the tailnet.
+
+**Leave the app-container SIDs alone.** `ALL APPLICATION PACKAGES` and the
+`S-1-15-3-*` capability SIDs exist only in local app-container tokens, never in
+an SMB session, so they grant nothing to another Sage user. Stripping them
+breaks local printing on any **v4** driver, whose print-support component runs
+in an app container: the HP OfficeJet Pro 7740 went "copies fine, will not
+print from my PC" the day after its DACL was rewritten, with DCOM 10010 errors
+for `HPPrinterControl` in the System log. An early version of the script did
+strip them; the fix is to add the two `ALL APPLICATION PACKAGES` ACEs back
+(Print `0x00020008` on the printer, `0x00020000` OI|IO on documents).
 
 By default it also disables the broad `File and Printer Sharing (SMB-In)` rules
 so the LAN and Public profiles cannot reach 445. If the user still needs LAN
