@@ -139,6 +139,38 @@ Add-PrinterDriver -Name "<exact driver name from the workstation>"
 Get-PrinterDriver | findstr /i <vendor>
 ```
 
+You do not need an RDP session for this. The Sage host is an SSM-managed EC2
+instance, so `bin/ssm-ps` runs it from your Mac (find the instance id with
+`./bin/ssm-ps --list`). Fetch the vendor package straight onto the host and
+unpack it with the standalone 7-Zip console rather than running the vendor
+installer, which wants a desktop:
+
+```bash
+./bin/ssm-ps <sage-instance-id> '$d="C:\Temp\drv"; New-Item -ItemType Directory -Force $d | Out-Null;
+  [Net.ServicePointManager]::SecurityProtocol="Tls12";
+  Invoke-WebRequest "<vendor package url>" -OutFile "$d\pkg.exe" -UseBasicParsing;
+  Invoke-WebRequest "https://www.7-zip.org/a/7zr.exe" -OutFile "$d\7zr.exe" -UseBasicParsing;
+  & "$d\7zr.exe" x "$d\pkg.exe" -o"$d\x" -y | Select-Object -Last 2;
+  Get-ChildItem "$d\x" -Recurse -Filter *.inf | Select-Object -ExpandProperty FullName'
+```
+
+Then read the candidate INFs before installing one. **Do not trust the file
+name or the "PCL" suffix to tell you v3 from v4**: in HP's OfficeJet Pro 7740
+package the v3 driver is the bare `HP OfficeJet Pro 7740 series` and the v4
+one is `... series PCL-3` -- the reverse of what the names suggest. Match the
+workstation's `Get-PrinterDriver` `Name` **and** `MajorVersion` to the INF's
+model string and driver type, then:
+
+```bash
+./bin/ssm-ps <sage-instance-id> 'pnputil /add-driver "C:\Temp\drv\x\<chosen>.inf" /install;
+  Add-PrinterDriver -Name "<exact driver name from the workstation>";
+  Get-PrinterDriver | Where-Object Name -like "*<model>*" | Select-Object Name,MajorVersion'
+```
+
+The workstation is usually SSM-managed too, so the version check that decides
+this (`Get-PrinterDriver -Name "<driver>" | Select-Object Name,MajorVersion`)
+can be run the same way with its `mi-...` id.
+
 `Add-PrinterDriver` is **not** optional -- `pnputil` (or the vendor's `dpinst`)
 stages the package but leaves `Get-PrinterDriver` empty on its own.
 
