@@ -346,7 +346,7 @@ $extraSids = @($kept |
 # for the machine's own user. Report it and move on -- do not remove it, and do
 # not hold up the verdict over it.
 $capability = @($extraSids | Where-Object { $_ -like 'S-1-15-3-*' })
-$unknown    = @($extraSids | Where-Object { $_ -notlike 'S-1-15-3-*' })
+$unknown    = @($extraSids | Where-Object { $_ -notlike 'S-1-15-3-*' -and $appContainerSids -notcontains $_ })
 
 if ($capability.Count -gt 0) {
     Note "$($capability.Count) app-container capability SID(s) left in place (normal on Windows printers; local Store-app printing only, not reachable over SMB)."
