@@ -101,13 +101,20 @@ inbound TCP 445 to the tailnet.
 
 **Leave the app-container SIDs alone.** `ALL APPLICATION PACKAGES` and the
 `S-1-15-3-*` capability SIDs exist only in local app-container tokens, never in
-an SMB session, so they grant nothing to another Sage user. Stripping them
-breaks local printing on any **v4** driver, whose print-support component runs
-in an app container: the HP OfficeJet Pro 7740 went "copies fine, will not
-print from my PC" the day after its DACL was rewritten, with DCOM 10010 errors
-for `HPPrinterControl` in the System log. An early version of the script did
-strip them; the fix is to add the two `ALL APPLICATION PACKAGES` ACEs back
-(Print `0x00020008` on the printer, `0x00020000` OI|IO on documents).
+an SMB session, so they grant nothing to another Sage user -- there is no
+privacy reason to remove them, and v4 drivers run their print-support
+component in an app container that needs them. An early version of the script
+did strip them; the repair is to add the two `ALL APPLICATION PACKAGES` ACEs
+back (Print `0x00020008` on the printer, `0x00020000` OI|IO on documents).
+
+A cautionary tale on attribution: the day after the HP OfficeJet Pro 7740's
+DACL was rewritten, its user reported "copies fine, will not print from my
+PC", and the strip above was blamed. It was not the cause. Enabling the
+`PrintService/Operational` log showed every job reaching the printer over USB
+(event 307), and the printer's own status report showed the black cartridge at
+0 pages. Before blaming a change, enable that log and get the printer's status
+report -- both take a minute and they separate "Windows did not deliver it"
+from "the printer could not print it".
 
 By default it also disables the broad `File and Printer Sharing (SMB-In)` rules
 so the LAN and Public profiles cannot reach 445. If the user still needs LAN
