@@ -109,12 +109,21 @@ back (Print `0x00020008` on the printer, `0x00020000` OI|IO on documents).
 
 A cautionary tale on attribution: the day after the HP OfficeJet Pro 7740's
 DACL was rewritten, its user reported "copies fine, will not print from my
-PC", and the strip above was blamed. It was not the cause. Enabling the
+PC", and the strip above was blamed. It was not the cause -- and neither was
+the low black cartridge that was blamed next. Enabling the
 `PrintService/Operational` log showed every job reaching the printer over USB
-(event 307), and the printer's own status report showed the black cartridge at
-0 pages. Before blaming a change, enable that log and get the printer's status
-report -- both take a minute and they separate "Windows did not deliver it"
-from "the printer could not print it".
+(event 307); the printer's own status and print-quality pages were clean; a v3
+test queue, the v4 queue, Best quality, and a job rendered on the Sage host all
+faded identically. The real cause was a **corrupted HP driver stack on the
+PC** -- a component shared by every queue, which no per-queue test can
+isolate. The fix: clear the spooler, remove the printer and driver completely,
+install the driver package from the Microsoft Update Catalog with `pnputil`
+(HP's own installer and Windows Update both failed), and re-add the printer on
+its USB port. Rule: when every host-sent job fails the same way and the
+printer's self-tests pass, do that clean reinstall before blaming ink,
+printhead, or the printer. And note the side effect: a full driver removal
+also deletes the shared Sage queue and its share -- redo steps 1-4 and 6
+afterwards.
 
 By default it also disables the broad `File and Printer Sharing (SMB-In)` rules
 so the LAN and Public profiles cannot reach 445. If the user still needs LAN
