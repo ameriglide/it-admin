@@ -17,7 +17,7 @@
         - Associates the existing Windows profile with a Google account
 
       Phase 2 (after confirming GCPW login works):
-        - Uninstalls JumpCloud agent
+        - Uninstalls JumpCloud agent and JumpCloud Remote Assist
         - Cleans up JumpCloud artifacts
 
 .PARAMETER NewMachine
@@ -81,7 +81,7 @@ param(
 $ErrorActionPreference = "Stop"
 $ProgressPreference = "SilentlyContinue"
 # Stamped by pre-commit hook -- do not edit manually
-$Script:Revision = "c58b900"
+$Script:Revision = "cecf6c8"
 
 Write-Host "deploy-gcpw.ps1 rev $Script:Revision" -ForegroundColor DarkGray
 
@@ -745,7 +745,7 @@ if ($Phase -eq 2) {
     # Step 1: Stop JumpCloud services
     # ------------------------------------------------------------------
     Write-Host ""
-    Write-Host "[1/3] Stopping JumpCloud services..." -ForegroundColor Yellow
+    Write-Host "[1/4] Stopping JumpCloud services..." -ForegroundColor Yellow
 
     $jcServices = Get-Service -Name "jumpcloud*" -ErrorAction SilentlyContinue
     foreach ($svc in $jcServices) {
@@ -758,7 +758,7 @@ if ($Phase -eq 2) {
     # Step 2: Uninstall JumpCloud agent
     # ------------------------------------------------------------------
     Write-Host ""
-    Write-Host "[2/3] Uninstalling JumpCloud agent..." -ForegroundColor Yellow
+    Write-Host "[2/4] Uninstalling JumpCloud agent..." -ForegroundColor Yellow
 
     if (Test-Path $JcUninstaller) {
         # JumpCloud's own uninstaller
@@ -779,10 +779,28 @@ if ($Phase -eq 2) {
     }
 
     # ------------------------------------------------------------------
-    # Step 3: Clean up JumpCloud artifacts
+    # Step 3: Uninstall JumpCloud Remote Assist
+    # ------------------------------------------------------------------
+    # Remote Assist is a separate NSIS install, not part of the agent MSI, so
+    # the WMI sweep above never sees it. Left behind without the agent it
+    # crash-loops every 5 seconds forever (AG-1141). Same removal script the
+    # fleet cleanup used; -Force because the agent is already gone by now.
+    Write-Host ""
+    Write-Host "[3/4] Uninstalling JumpCloud Remote Assist..." -ForegroundColor Yellow
+
+    $raScript = "$env:TEMP\remove-jumpcloud-remote-assist.ps1"
+    try {
+        Invoke-WebRequest -Uri "https://raw.githubusercontent.com/ameriglide/it-admin/main/scripts/remove-jumpcloud-remote-assist.ps1" -OutFile $raScript -UseBasicParsing -ErrorAction Stop
+        & $raScript -Force
+    } catch {
+        Write-Warning "  Could not download remove-jumpcloud-remote-assist.ps1 ($($_.Exception.Message)). Run it by hand afterwards."
+    }
+
+    # ------------------------------------------------------------------
+    # Step 4: Clean up JumpCloud artifacts
     # ------------------------------------------------------------------
     Write-Host ""
-    Write-Host "[3/3] Cleaning up JumpCloud artifacts..." -ForegroundColor Yellow
+    Write-Host "[4/4] Cleaning up JumpCloud artifacts..." -ForegroundColor Yellow
 
     # Remove JumpCloud directory
     if (Test-Path $JcAgentPath) {

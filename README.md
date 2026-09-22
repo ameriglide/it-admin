@@ -26,10 +26,18 @@ Replace `<USER>` with the employee's username (e.g. `jsmith`).
 
 Reboot, verify Google login works and existing profile is intact, then:
 
-**Phase 2** — Remove JumpCloud:
+**Phase 2** — Remove JumpCloud (agent and Remote Assist):
 ```powershell
 & $env:TEMP\deploy-gcpw.ps1 -Phase 2
 ```
+
+Machines migrated before 2026-09-22 had Phase 2 remove only the agent, leaving
+JumpCloud Remote Assist behind to crash-loop (AG-1141). Clean those up with:
+```powershell
+Set-ExecutionPolicy Bypass -Scope Process -Force; irm https://raw.githubusercontent.com/ameriglide/it-admin/main/scripts/remove-jumpcloud-remote-assist.ps1 -OutFile $env:TEMP\remove-jumpcloud-remote-assist.ps1; & $env:TEMP\remove-jumpcloud-remote-assist.ps1
+```
+It refuses to run while the JumpCloud agent is still installed (add `-Force`
+to override) and prints a verdict instead of rebooting.
 
 ### sage-amg cutover (Windows Server 2022 RDP host)
 
