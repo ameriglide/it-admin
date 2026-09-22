@@ -123,7 +123,10 @@ its USB port. Rule: when every host-sent job fails the same way and the
 printer's self-tests pass, do that clean reinstall before blaming ink,
 printhead, or the printer. And note the side effect: a full driver removal
 also deletes the shared Sage queue and its share -- redo steps 1-4 and 6
-afterwards.
+afterwards. A queue re-created by an admin account carries only that admin's
+ACE plus Everyone, so once the script strips Everyone the machine's own user
+has no right to print locally: check the DACL after re-sharing and grant
+Print (`0x00020008`, plus `0x00020000` OI|IO on documents) to that user.
 
 By default it also disables the broad `File and Printer Sharing (SMB-In)` rules
 so the LAN and Public profiles cannot reach 445. If the user still needs LAN
