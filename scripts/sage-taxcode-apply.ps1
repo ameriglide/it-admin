@@ -17,7 +17,7 @@ param(
     [string]$SageHome = 'C:\Sage\Sage 100\MAS90\Home',
     [string]$Log = (Join-Path $env:ProgramData 'ag-admin\sage-taxcode-apply.log')
 )
-$Script:Revision = "643f1cd"
+$Script:Revision = "1a49d2a"
 $ErrorActionPreference = 'Stop'
 . (Join-Path $PSScriptRoot 'sage-taxcode-lib.ps1')
 
@@ -94,8 +94,8 @@ function Write-Header($o, $h, [bool]$expectNew) {
 function Write-Line($d, $l, [bool]$expectNew) {
     [void]$d.nSetKeyValue('TaxCode$', [string]$l.TaxCode); [void]$d.nSetKeyValue('TaxClass$', [string]$l.TaxClass)
     $ret = $d.nSetKey()
-    if ($expectNew -and $ret -ne 2) { return "skip: nSetKey=$ret (already exists)" }
-    if (-not $expectNew -and $ret -ne 1) { return "skip: nSetKey=$ret (not found)" }
+    $skip = Get-LineWriteDisposition -ExpectNew $expectNew -SetKeyResult $ret
+    if ($skip) { return $skip }
     Assert-Ret 'SalesTaxable' ($d.nSetValue('SalesTaxable$', (ConvertTo-SageYesNo $l.SalesTaxable))) $d
     Assert-Ret 'PurchasesTaxable' ($d.nSetValue('PurchasesTaxable$', (ConvertTo-SageYesNo $l.PurchasesTaxable))) $d
     Assert-Ret 'TaxRate' ($d.nSetValue('TaxRate', [double]$l.TaxRate)) $d

@@ -1,7 +1,7 @@
 # Shared helpers for sage-taxcode-dump.ps1 and sage-taxcode-apply.ps1 (AG-806).
 # Pure functions only: no ODBC, no COM, so they can be exercised by Pester on
 # any machine. Dot-source this file. ASCII only.
-$Script:Revision = "346bbe3"
+$Script:Revision = "27a76a2"
 
 function Get-SageLiveConnectionString {
     param([Parameter(Mandatory)][string]$Dsn)
@@ -65,6 +65,29 @@ function Format-ApplyLogLine {
 function ConvertTo-HeaderLogValue {
     param([Parameter(Mandatory)][object]$Header)
     return ('desc={0}|short={1}|tot={2}|totclass={3}|limit={4}|etv={5}|ret={6}' -f $Header.TaxCodeDesc, $Header.TaxCodeShortDesc, $Header.TaxOnTax, $Header.TaxClassForTaxOnTax, $Header.TaxLimit, $Header.ExpenseToVendorItem, $Header.RetentionTaxable)
+}
+
+function Get-LineWriteDisposition {
+    # Decides whether a tax-class line keyed by nSetKey should be written.
+    # Returns $null to proceed, or a "skip: ..." reason.
+    #
+    # Creating a sales tax code header through the BOI makes Sage auto-generate
+    # that code's class lines (one per SY_SalesTaxClass row) with default
+    # values, so a planned add legitimately finds the row already present and
+    # nSetKey returns 1 rather than 2. Both are writable: the caller verifies
+    # the write by re-reading, so writing an already-present row is safe and is
+    # what makes the apply idempotent. Treating 1 as "already exists, skip" is
+    # what left 71 lines at rate 0 on 44 new codes during the AG-806 run.
+    param(
+        [Parameter(Mandatory)][bool]$ExpectNew,
+        [Parameter(Mandatory)][int]$SetKeyResult
+    )
+    if ($ExpectNew) {
+        if ($SetKeyResult -eq 1 -or $SetKeyResult -eq 2) { return $null }
+        return "skip: nSetKey=$SetKeyResult (cannot key record)"
+    }
+    if ($SetKeyResult -eq 1) { return $null }
+    return "skip: nSetKey=$SetKeyResult (not found)"
 }
 
 function ConvertTo-LineLogValue {
