@@ -1,6 +1,10 @@
 # Sage 100: restoring system tables lost at the Aug 29 cutover (AG-806)
 
-_last verified: 2026-09-04_
+_last verified: 2026-09-22_
+
+> Status: the tax code and class line merge was applied to the live server on
+> 2026-09-22 and verified clean. The Visual Integrator job copy is still
+> outstanding. The rest of `MAS_System` (roles, forms, users) is untouched.
 
 The Aug 29, 2026 cutover re-migrated company folders but not `MAS_System`
 (the shared setup tables), which still date from the June 17 trial
@@ -11,8 +15,14 @@ server. Root cause and the diff numbers are on Linear AG-806; the design is
 in `it-admin-docs/specs/2026-09-04-sage-taxcode-merge-design.md`.
 
 Everything below runs on the Sage server over SSH as a Sage user with
-Unified Login. No scheduled task is needed, and as of 2026-09-04 the Task
-Scheduler on that host hangs anyway.
+Unified Login. No scheduled task is needed. (The Task Scheduler on that host
+hung from 2026-09-04 until the 2026-09-20 reboot cleared it; this procedure
+never depended on it.)
+
+The tax code half writes through the Business Object Interface, which honours
+Sage's own record locking, so it does not need a quiet window and was run with
+users working normally. The Visual Integrator half copies files directly and
+does need one.
 
 ## Tax codes and class lines
 
@@ -35,9 +45,23 @@ Scheduler on that host hangs anyway.
    decide each one by hand in Sales Tax Code Maintenance and re-dump.
    `update lines` should be the freight pattern (class TF in AZ, CA, FL, IL,
    MA, MO going to 0% / N) plus a handful of GA, NC, WA rate updates.
-4. Take an AMI snapshot of the Sage server (or copy
-   `MAS_System\SY_SalesTaxCode.M4T` and `SY_SalesTaxCodeDetail.M4T` aside
-   with backup semantics) before writing.
+4. Back up the two tables before writing. An AMI snapshot of the Sage server
+   is the broadest option. To copy just the two files aside, use a shadow
+   copy: the live files are held open by `pvxiosvr`, and `robocopy /b` fails
+   against them (exit 8) even from an elevated session, so backup mode is not
+   enough on its own.
+
+       $sc = ([WMICLASS]'root\cimv2:Win32_ShadowCopy').Create('C:\','ClientAccessible')
+       $s = Get-CimInstance Win32_ShadowCopy | Where-Object { $_.ID -eq $sc.ShadowID }
+       cmd /c mklink /d $env:TEMP\sageshadow ($s.DeviceObject + '\')
+       # copy SY_SalesTaxCode.M4T and SY_SalesTaxCodeDetail.M4T from
+       # $env:TEMP\sageshadow\Sage\Sage 100\MAS90\MAS_System, then:
+       cmd /c rmdir $env:TEMP\sageshadow
+       $s | Remove-CimInstance
+
+   Record the MD5 of each copied file, and remember to release the shadow
+   copy. Keep the `live.tsv` dump from step 2 as well: it is a complete
+   logical record of both tables and is enough to reconstruct any single row.
 5. Copy `plan.json` to the server, then in order:
 
        powershell -NoProfile -ExecutionPolicy Bypass -File sage-taxcode-apply.ps1 -SelfTest
@@ -48,10 +72,23 @@ Scheduler on that host hangs anyway.
    run prints every intended write. Apply stops at the first verification
    mismatch (exit 3) and logs to
    `C:\ProgramData\ag-admin\sage-taxcode-apply.log`.
+
+   Creating a tax code header makes Sage auto-generate that code's class
+   lines, one per `SY_SalesTaxClass` row, carrying default values. The apply
+   therefore finds those rows already present and overwrites them with the
+   planned values; the summary counts them as added. Do not read
+   `nSetKey=1` in the log as a problem. Until 2026-09-22 the script skipped
+   those rows instead of writing them, which left 71 lines at rate 0 on 44
+   new codes and still exited 0, so on any older copy of the script run the
+   apply, re-diff, and apply the new plan as well.
 6. Dump live again, re-run the diff, and expect `headers: add 0` and
-   `lines: add 0, update 0`. Then ask the tax code owner to spot check one
-   restored code (TX BELL COUNTY) and one freight line (any CA code, class
-   TF, 0% and not taxable).
+   `lines: add 0, update 0`. Treat this as the real proof the run worked:
+   the apply reporting success is not sufficient on its own. Then ask the
+   tax code owner to spot check one restored code (TX BELL COUNTY) and one
+   freight line (any CA code, class TF, 0% and not taxable).
+
+   `live-only` headers and lines are expected and are left alone: they are
+   tax codes added on the new server since the cutover.
 
 ## Visual Integrator jobs
 

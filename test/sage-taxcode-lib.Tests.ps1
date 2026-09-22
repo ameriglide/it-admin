@@ -85,3 +85,30 @@ Describe 'ConvertTo-LineLogValue' {
         ConvertTo-LineLogValue $l | Should -Be 'sales=N|purch=N|rate=0.000000|nonrec=0.000'
     }
 }
+
+Describe 'Get-LineWriteDisposition' {
+    # Regression guard for AG-806: creating a sales tax code header through the
+    # BOI makes Sage auto-generate that code's class lines, so a planned "add"
+    # legitimately finds the row already present and nSetKey returns 1. The
+    # first live run treated that as "already exists" and skipped the write,
+    # leaving 71 lines at rate 0 on 44 brand-new tax codes.
+    It 'writes an added line that Sage auto-created with the header' {
+        Get-LineWriteDisposition -ExpectNew $true -SetKeyResult 1 | Should -BeNullOrEmpty
+    }
+
+    It 'writes an added line that did not exist at all' {
+        Get-LineWriteDisposition -ExpectNew $true -SetKeyResult 2 | Should -BeNullOrEmpty
+    }
+
+    It 'skips an added line whose record cannot be keyed' {
+        Get-LineWriteDisposition -ExpectNew $true -SetKeyResult 0 | Should -Match '^skip: nSetKey=0'
+    }
+
+    It 'writes an updated line that exists' {
+        Get-LineWriteDisposition -ExpectNew $false -SetKeyResult 1 | Should -BeNullOrEmpty
+    }
+
+    It 'skips an updated line that is missing' {
+        Get-LineWriteDisposition -ExpectNew $false -SetKeyResult 2 | Should -Match 'not found'
+    }
+}
