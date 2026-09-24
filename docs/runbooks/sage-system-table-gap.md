@@ -1,10 +1,11 @@
 # Sage 100: restoring system tables lost at the Aug 29 cutover (AG-806)
 
-_last verified: 2026-09-22_
+_last verified: 2026-09-23_
 
 > Status: the tax code and class line merge was applied to the live server on
-> 2026-09-22 and verified clean. The Visual Integrator job copy is still
-> outstanding. The rest of `MAS_System` (roles, forms, users) is untouched.
+> 2026-09-22 and verified clean. The Visual Integrator job copy was done the
+> same evening and verified the next morning (`VI jobs missing: 0`). The rest
+> of `MAS_System` (roles, forms, users) is untouched.
 
 The Aug 29, 2026 cutover re-migrated company folders but not `MAS_System`
 (the shared setup tables), which still date from the June 17 trial
@@ -99,18 +100,48 @@ tables have not changed since June: the diff summary must show
 names any job, stop, because the wholesale copy would delete that job, and
 re-create the missing jobs by hand instead.
 
-1. Announce the window; everyone out of Sage; stop the Sage 100 services
-   (Sage 100 Advanced application server and `pvxiosvr`).
-2. In `C:\Sage\Sage 100\MAS90\MAS_System`, rename each of
+Stopping the services takes down more than the Sage GUI. `PVXIOSVR` is the
+ODBC server every integration reads Sage through: the CRM sync (sage-gql,
+five division heartbeats in Better Stack), the Erisana sync services, and
+the shipping station. Plan the window for them too, and expect to restart
+the CRM sync afterwards (step 4); it does not recover on its own.
+
+1. Announce the window; everyone out of Sage. `query session` and
+   `Get-Process pvxwin64` show who is still in; a session idle for hours
+   at the end of the day is usually an abandoned window, but disconnecting
+   it is the operator's call, not the script's.
+2. Stop the two services: `PVXIOSVR` and `Sage 100 Advanced.PVX 2026
+   (10000)`. After `Stop-Service PVXIOSVR` reports Stopped, **wait for
+   `pvxiosvr.exe` to exit on its own** rather than killing it. On
+   2026-09-22 the process was killed the moment the service said Stopped;
+   the next start then hung in start-pending for ten hours, and every ODBC
+   consumer was down overnight until Alan restarted the service by hand.
+3. In `C:\Sage\Sage 100\MAS90\MAS_System`, rename each of
    `VI_JobHeader.M4T`, `VI_JobImportElements.M4T`,
    `VI_JobExportElements.M4T`, `VI_JobExportSelection.M4T` to
    `<name>.pre-ag806`, then copy the same four files from
-   `C:\sage-migrate\extract\MAS90\MAS_System`.
-3. Start the services, re-run the dump and diff, and expect
-   `VI jobs missing: 0`.
-4. Have the job owner open one restored job in Visual Integrator. Import
+   `C:\sage-migrate\extract\MAS90\MAS_System`. Compare MD5s.
+4. Start the application server, then `PVXIOSVR`. If `PVXIOSVR` is still
+   `StartPending` after a minute, kill the new `pvxiosvr.exe` and start the
+   service again instead of waiting; in a script, always give
+   `Start-Service` a `WaitForStatus` timeout so a hang fails loudly instead
+   of holding the SSH session open all night. Prove the service is serving,
+   not just Running: `Get-NetTCPConnection -LocalPort 20222 -State Listen`
+   and a query through `DSN=sage_ad1`. Then restart the CRM sync stack per
+   `sage-gql/deploy/windows/README.md` (`pm2 restart all` under the
+   `sage-sync` `PM2_HOME`, then `schtasks /end` and `/run` on
+   `SageSyncStack`): a cron app caught mid-query when ODBC went away holds
+   the shared ODBC lock indefinitely, and the sync apps time out behind it
+   until pm2 is restarted. Watch the five `sage-gql sync` heartbeats go
+   green within ten minutes.
+5. Re-run the dump and diff, and expect `VI jobs missing: 0`.
+6. Have the job owner open one restored job in Visual Integrator. Import
    file paths inside the jobs still point at her old desktop; she re-browses
    them on first use, as before.
+
+The 2026-09-22 run is logged on AG-806 with the MD5 of each copied file.
+Rollback is the reverse: stop the services, delete the four files, rename
+`*.pre-ag806` back, start the services.
 
 ## Still missing from the same root cause
 
