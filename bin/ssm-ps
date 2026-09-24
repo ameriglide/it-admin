@@ -1,0 +1,74 @@
+#!/usr/bin/env bash
+#
+# Run PowerShell on an SSM-managed Windows machine from this Mac and print
+# what came back. No RDP, no password, no TeamViewer: the SSM agent on the
+# target executes it as SYSTEM and AWS relays the output.
+#
+# Usage: ./bin/ssm-ps --list                        # instance ids, names, IPs, online?
+#        ./bin/ssm-ps <instance-id> '<powershell>'  # one-liner
+#        ./bin/ssm-ps <instance-id> -f script.ps1   # longer script from a file
+#
+# <instance-id> is i-... for EC2 (the Sage hosts) or mi-... for a workstation
+# enrolled through the hybrid activation. Find it with --list.
+#
+# Auth: the AWS CLI profile named by SSM_PROFILE (default ag-aws-admin). That
+# profile should get its keys at run time, not from a file -- point its
+# credential_process at a helper that sources load-env.sh and prints
+# {"Version":1,"AccessKeyId":"$AG_AWS_ADMIN_ACCESS_KEY_ID",
+#  "SecretAccessKey":"$AG_AWS_ADMIN_SECRET_ACCESS_KEY"} -- so every use goes
+# through the 1Password unlock and nothing is cached on disk.
+#
+# Remember what SSM is NOT for: anything that must land in a *user's* session
+# (a per-user printer connection, HKCU settings). It runs as SYSTEM, writes
+# machine-wide, and shows no prompt. Stage drivers and read state with it;
+# never install a user's printer with it.
+#
+set -euo pipefail
+export AWS_PAGER=""                       # never hand output to less
+PROFILE="${SSM_PROFILE:-ag-aws-admin}"
+REGION="${SSM_REGION:-us-east-1}"
+AWS=(aws --profile "$PROFILE" --region "$REGION")
+
+usage() { sed -n '2,12p' "$0" | sed 's/^# \{0,1\}//' >&2; exit 2; }
+
+[[ $# -ge 1 ]] || usage
+
+if [[ "$1" == "--list" ]]; then
+  "${AWS[@]}" ssm describe-instance-information \
+    --query 'InstanceInformationList[].{Id:InstanceId,Name:ComputerName,IP:IPAddress,Ping:PingStatus,OS:PlatformName}' \
+    --output table
+  exit 0
+fi
+
+INSTANCE="$1"; shift
+[[ $# -ge 1 ]] || usage
+if [[ "$1" == "-f" ]]; then
+  [[ $# -eq 2 && -r "$2" ]] || usage
+  SCRIPT="$(cat "$2")"
+else
+  SCRIPT="$*"
+fi
+
+# The document takes a JSON list of lines; hand it the whole script as one
+# element so multi-line files keep their structure.
+PARAMS=$(python3 -c 'import json,sys; print(json.dumps({"commands":[sys.argv[1]]}))' "$SCRIPT")
+
+CMD=$("${AWS[@]}" ssm send-command --instance-ids "$INSTANCE" \
+        --document-name AWS-RunPowerShellScript --parameters "$PARAMS" \
+        --query Command.CommandId --output text)
+echo "command-id: $CMD" >&2
+
+# Poll until the invocation settles. A download or driver install can take a
+# few minutes; the document's own timeout is an hour.
+STATUS=Pending
+for _ in $(seq 1 200); do
+  STATUS=$("${AWS[@]}" ssm get-command-invocation --command-id "$CMD" \
+             --instance-id "$INSTANCE" --query Status --output text 2>/dev/null || echo Pending)
+  case "$STATUS" in Success|Failed|Cancelled|TimedOut) break ;; esac
+  sleep 3
+done
+echo "status: $STATUS" >&2
+
+"${AWS[@]}" ssm get-command-invocation --command-id "$CMD" --instance-id "$INSTANCE" \
+  --query '[StandardOutputContent,StandardErrorContent]' --output text
+[[ "$STATUS" == "Success" ]]
