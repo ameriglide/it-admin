@@ -205,11 +205,13 @@ can be run the same way with its `mi-...` id.
 stages the package but leaves `Get-PrinterDriver` empty on its own.
 
 The name must match the workstation's `DriverName` exactly, and the driver
-type must match too: check `MajorVersion` on the workstation and install the
-same -- v3 for the three Brother/LaserJet users, v4 for the HP OfficeJet Pro
-7740, and both connected first time once the host had the matching one.
-Prefer a "no installer" download so there is no wizard demanding attached
-hardware.
+type must match too -- and **the shared queue must use a v3 driver.** Sage
+100 cannot print through a v4 connection: Notepad in the Sage session prints
+fine, Sage itself does not (confirmed on the HP OfficeJet Pro 7740,
+2026-09-30). If the workstation's own queue is v4, add a second queue on the
+same port with the vendor's v3 driver, share *that* one, and leave the v4
+queue as the user's local default. Prefer a "no installer" download so there
+is no wizard demanding attached hardware.
 
 Do every printer in one sitting rather than per user.
 
