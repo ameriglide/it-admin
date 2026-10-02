@@ -285,13 +285,68 @@ Have them log into Sage through the Guacamole portal, then **in that session**:
    rundll32 printui.dll,PrintUIEntry /y /n "\\<workstation-tailnet-ip>\<printer-name>"
    ```
 
-   ("Let Windows manage my default printer" is already off on the Sage host,
-   so it sticks.) Then have the user close Sage 100 and open it again -- Sage
-   reads the default printer at startup.
+   Then have the user close Sage 100 and open it again -- Sage reads the
+   default printer at startup.
+
+   **This does not stick on its own** -- see "The default does not survive a
+   reconnect" below.
 
 Then confirm it appears in Sage's print dialog for that user, and that a
 **different** Sage user neither sees it in `Get-Printer` nor can open the
 share.
+
+### The default does not survive a reconnect
+
+"Let Windows manage my default printer" is off on the Sage host
+(`LegacyDefaultPrinterMode=1`), and that is not enough. A default that points
+at a per-user printer connection is dropped after the session disconnects and
+reconnects: the spooler replaces it with the first local printer, the Sage 100
+Paperless Office driver. Guacamole reconnects a session many times a day (20
+for one user on 2026-10-01), so the default set in step 6 is gone within
+minutes and the user reports "it keeps defaulting to the wrong printer".
+
+The evidence is `Microsoft-Windows-PrintService/Admin` event 823. A change the
+user made has `DefaultPrinterSelectedBySpooler=0` and names the old printer; a
+fallback has `DefaultPrinterSelectedBySpooler=1` and `OldDefaultPrinter` of
+`-`. On 2026-10-01 two users each set their office printer and lost it again
+69 and 23 seconds after a session reconnect
+(`TerminalServices-LocalSessionManager/Operational` event 25). No group policy
+fixes this; it is a long-standing RDS behaviour with connection printers.
+
+`scripts/sage-default-printer-guard.ps1` puts the default back. It runs in the
+user's own session at logon, on every session reconnect, and whenever the
+spooler logs a fallback. It acts only when the user has exactly one printer
+connection and the current default is empty or the Paperless driver, so a
+default the user chose themselves is left alone. Install on the Sage host,
+elevated, from a folder holding both scripts:
+
+```powershell
+.\install-sage-default-printer-guard.ps1 -OnlyUser jdoe   # pilot, one account
+.\install-sage-default-printer-guard.ps1                  # every Sage user
+```
+
+Each user's log is `%LOCALAPPDATA%\ag-admin\default-printer-guard.log`.
+
+For the first few seconds after a reconnect the connection is not usable at
+all: the printer is missing from print dialogs and setting it as default fails
+with win32 1801 (invalid printer name). The guard retries for just under four
+minutes. Over the pilot day the default was usually back about 12 seconds after
+a reconnect, once after 45 seconds, and once not until the next reconnect two
+minutes later (that run had retries for only 50 seconds; the longer retries
+were added because of it). A user who prints inside that window sees the wrong
+printer once; that is expected.
+
+If every retry fails with 1801, the guard is not the problem: the workstation
+sharing the printer cannot be reached. Check step 5 (`Test-NetConnection ...
+-Port 445`) and "What breaks this later".
+
+`schtasks /run /tn "AG Sage Default Printer Guard"` runs it at once in every
+logged-on user's session, which is the quick way to fix everyone after an
+install.
+
+_Status 2026-10-02: installed for the Remote Desktop Users group after a
+one-day pilot on one account (nine reconnects, default restored each time, user
+confirmed Sage offered the right printer without restarting Sage)._
 
 ### Why the order matters (Win32 error 1219)
 
