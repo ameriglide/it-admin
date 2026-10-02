@@ -6,6 +6,7 @@ import { phenixStep } from "./steps/phenix";
 import { twilioStep } from "./steps/twilio";
 import { directLineStep } from "./steps/direct-line";
 import { zoiperStep } from "./steps/zoiper";
+import { orgDirectoryStep, mirrorsOrgDirectory } from "./steps/org-directory";
 import { printSummary } from "./lib/summary";
 import { closeAll } from "./lib/db";
 
@@ -17,6 +18,7 @@ const steps: Step[] = [
   twilioStep,
   directLineStep,
   zoiperStep,
+  orgDirectoryStep,
 ];
 
 export async function run(
@@ -45,6 +47,14 @@ export async function run(
   if (!process.env.ONBOARD_ROLES) {
     if (!skip.includes("googlegroups")) skip.push("googlegroups");
     console.log("  (ONBOARD_ROLES unset - skipping Google Groups)");
+  }
+
+  // The org-directory mem0 mirror only covers ameriglide.com, and needs a key.
+  if (!mirrorsOrgDirectory()) {
+    if (!skip.includes("orgdirectory")) skip.push("orgdirectory");
+    console.log(
+      "  (MEM0_API_KEY unset or tenant is not ameriglide.com - skipping Org directory)",
+    );
   }
 
   try {
