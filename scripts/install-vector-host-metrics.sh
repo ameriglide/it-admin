@@ -61,11 +61,16 @@ if [[ ! -x "$BIN" ]]; then
   esac
 
   if [[ -z "$VECTOR_VERSION" ]]; then
-    # Resolve the latest release tag (e.g. "v0.49.0"); fall back to a pin.
-    VECTOR_VERSION="$(curl -fsSL https://api.github.com/repos/vectordotdev/vector/releases/latest 2>/dev/null \
-      | grep -m1 '"tag_name"' | sed -E 's/.*"v?([0-9.]+)".*/\1/')" || true
+    # Resolve the newest Vector release (e.g. "v0.58.0"); fall back to a pin.
+    # Not /releases/latest: the repo also publishes tools such as vdev
+    # ("vdev-v0.3.25"), and when one of those is newest the old parse produced
+    # a malformed download URL. Keep only plain vX.Y.Z tags, which also skips
+    # release candidates. The list is newest-first.
+    VECTOR_VERSION="$(curl -fsSL 'https://api.github.com/repos/vectordotdev/vector/releases?per_page=50' 2>/dev/null \
+      | grep -oE '"tag_name": *"v[0-9]+\.[0-9]+\.[0-9]+"' | head -n1 \
+      | sed -E 's/.*"v([0-9.]+)"/\1/')" || true
   fi
-  VECTOR_VERSION="${VECTOR_VERSION:-0.49.0}"
+  VECTOR_VERSION="${VECTOR_VERSION:-0.58.0}"
 
   tarball="vector-${ARCH}-unknown-linux-gnu.tar.gz"
   url="https://github.com/vectordotdev/vector/releases/download/v${VECTOR_VERSION}/vector-${VECTOR_VERSION}-${ARCH}-unknown-linux-gnu.tar.gz"
