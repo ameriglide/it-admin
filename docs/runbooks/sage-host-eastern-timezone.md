@@ -1,6 +1,10 @@
 # Sage 100: moving the Sage server from UTC to Eastern time
 
-_last verified: 2026-09-17 (pre-change survey; planned for Sat 2026-09-19 night)_
+_last verified: 2026-09-20 (change carried out Sun 2026-09-20, about 9:15 to 9:40 PM Eastern)_
+
+**Status: done.** The server has been on Eastern time with `SAGE_TZ` set
+since 2026-09-20. The pre-change AMI is `sage-host-pre-eastern-tz-2026-09-20`.
+The procedure is kept for reference and for rollback.
 
 Since the Aug 29, 2026 cutover the Sage server has run on UTC. The old
 server was on Eastern. Sage 100 Advanced and every user session run on
@@ -55,13 +59,23 @@ Do this after hours with nobody in Sage. Tell #accounting-it beforehand
        'ad1','ad4','ad5','amc','iai' | ForEach-Object {
          $f = "C:\sage-gql\.env.$_"
          if (-not (Select-String -Path $f -Pattern '^SAGE_TZ=' -Quiet)) {
-           Add-Content -Path $f -Value 'SAGE_TZ=America/New_York' -Encoding ascii
+           Add-Content -Path $f -Value 'SAGE_TZ="America/New_York"' -Encoding ascii
          }
        }
        Select-String -Path C:\sage-gql\.env.* -Pattern '^SAGE_TZ='
 
    Check first that each file ends with a newline, or `Add-Content` will
    join the new line onto the last key.
+
+   **The quotes are required.** The env files have CRLF line endings, and
+   both launchers (`run-sync.cjs` and `ecosystem.config.js`) split them on
+   `\n`, so an unquoted value reaches the apps with a trailing carriage
+   return. Their regex drops it only when the value is quoted. On
+   2026-09-20 the unquoted form gave the sync apps `America/New_York\r`.
+   date-fns-tz turned that into `Invalid Date`, and every sync app died on
+   its first cycle and was respawned every five minutes until the line was
+   quoted. The default `UTC` never showed this because it doesn't come from
+   the file.
 4. **Change the time zone:**
 
        Set-TimeZone -Id 'Eastern Standard Time'
@@ -77,7 +91,13 @@ Do this after hours with nobody in Sage. Tell #accounting-it beforehand
    - `quser` shows `sage-sync` on the console, and port 4001 is listening
      (`Get-NetTCPConnection -LocalPort 4001 -State Listen`).
    - Each division's sync log (`C:\sage-gql\sync-<div>.out.log`) prints
-     `Sage: serverZone=America/New_York` at startup.
+     `Sage: serverZone=America/New_York` at startup. That line alone is not
+     enough, because it looks the same with a trailing carriage return. Wait
+     for the first five-minute cycle and check that `firstObj` and `lastObj`
+     are real dates, not `Invalid Date`, and that the process ID stays the
+     same from one cycle to the next. A few `ECONNREFUSED ... bootstrap
+     failed` lines in `sync-<div>.err.log` right after boot are normal: the
+     sync apps retry until gql is up.
    - The Better Stack heartbeats for each division check in within 10
      minutes.
    - Log in through Guacamole, open Sage and confirm the accounting date is
