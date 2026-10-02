@@ -1,6 +1,6 @@
 # Per-user printers for IAI users on the Sage portal
 
-_last verified: 2026-09-09_
+_last verified: 2026-10-02_
 
 IAI moved off remote desktop to the Guacamole portal. Sage now runs on a shared
 RDS session host, so **anything installed server-wide is visible to all IAI
@@ -241,8 +241,24 @@ Have them log into Sage through the Guacamole portal, then **in that session**:
    ```
 
    It prompts for the workstation account's password; nothing goes on the
-   command line.
-4. Then connect:
+   command line. The prompt is typed blind, and it has saved a password that
+   did not match on two attempts in a row for the same user -- so never
+   trust it without the next step.
+4. **Prove the saved credential works** before any printer command:
+
+   ```
+   net use \\<workstation-tailnet-ip>\IPC$
+   ```
+
+   It must answer `The command completed successfully.` If it answers
+   `The password or user name is invalid` and asks for a user name, press
+   `Ctrl+C`: the saved password is wrong. Re-save it through a window the
+   user can see -- `control /name Microsoft.CredentialManager`, then
+   **Windows Credentials -> Add a Windows credential** with the workstation
+   tailnet IP, `WORKSTATION01\jdoe` and the password -- and repeat this
+   step. A rejected attempt leaves no connection behind, so no sign-out is
+   needed between tries. Do not go on until it passes.
+5. Then connect:
 
    ```
    rundll32 printui.dll,PrintUIEntry /in /n \\<workstation-tailnet-ip>\<share-name>
@@ -250,7 +266,7 @@ Have them log into Sage through the Guacamole portal, then **in that session**:
 
    **Run this once.** If it prompts for a password or errors, stop and read
    the error -- do not retry (see the lockout note below).
-5. Verify:
+6. Verify:
 
    ```
    Get-Printer | Select-Object Name,Type,ComputerName
@@ -260,7 +276,7 @@ Have them log into Sage through the Guacamole portal, then **in that session**:
    Type `Connection`. Windows labels it with the printer's own name, not the
    share name; that is normal.
 
-6. **Make it the default.** Every Sage account starts with the "Sage 100
+7. **Make it the default.** Every Sage account starts with the "Sage 100
    Paperless Office" driver as its default, so without this the user has to
    pick their real printer on every print and will report "the printer does
    not work". In the same session:
@@ -300,6 +316,28 @@ never tried and no conflict forms. A user who happened to get a credential
 saved during earlier failed attempts will connect without any of this -- which
 is why one user "just worked" and the rest did not.
 
+### "The credentials supplied are not sufficient to access this printer"
+
+This dialog from `printui`, followed by a `Connect to <ip>` password box that
+accepts the password and then shows the same dialog again, means the **saved**
+credential is wrong -- not the share, the DACL or the driver. The password
+typed into the box is accepted for the SMB session, but the print spooler
+makes its own connection with the saved credential and is rejected every
+time. Ticking "Remember my password" in that box does not replace the saved
+one. Fix the saved credential (step 4 above) and connect again.
+
+Workstations do not audit logons, so the Security log is empty. Two logs do
+show which credential was offered and which was refused:
+
+* On the Sage host, `Microsoft-Windows-NTLM/Operational` events 4020 and
+  4021 name every outgoing identity and its target, and say whether it was
+  `Supplied Credentials` (the saved or typed one) or `Single Sign-On` (the
+  Sage identity, which always fails and is noise).
+* On the workstation, `Microsoft-Windows-SMBServer/Security` event 551 logs
+  each rejected sign-in with its time. Line the two up by timestamp.
+
+First seen 2026-10-02; step 4 exists because of it.
+
 ### The lockout trap (error 0x775)
 
 `Operation failed with error 0x00000775` from `printui` is
@@ -327,12 +365,12 @@ section with the new password.
 - **The workstation sleeps or is powered off.** The share is only reachable
   while the machine is awake on the tailnet. Printing fails at the moment of
   use, not at setup. Laptops are the usual offender.
-- **The workstation account's password changes.** The credential saved in
-  step 6 goes stale and printing starts failing with a credential prompt buried
-  in the Sage session. Re-run step 6 from the sign-out; no workstation change
+- **The workstation account's password changes.** The saved credential
+  goes stale and printing starts failing with a credential prompt buried
+  in the Sage session. Re-run steps 6-7 from the sign-out; no workstation change
   is needed. Note that a stale saved credential is retried automatically and
   will lock the workstation account within minutes -- check for the lockout
   before assuming the password is wrong.
 - **Tailscale restarts and the IP changes.** Rare with a stable tailnet, but the
-  share is addressed by IP, so the stored connection breaks. Re-run step 6 with
-  the new address.
+  share is addressed by IP, so the stored connection breaks. Re-run steps 6-7
+  with the new address.

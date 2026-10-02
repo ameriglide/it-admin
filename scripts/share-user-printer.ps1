@@ -52,7 +52,7 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
-$Script:Revision = "unreleased"
+$Script:Revision = "37c08fe"
 
 $verb   = if ($WhatIfOnly) { 'Would' } else { 'Did' }
 $issues     = [System.Collections.Generic.List[string]]::new()   # block the verdict
@@ -132,7 +132,9 @@ if ($printer.PortName -notmatch '^(USB|DOT4)') {
     Note "Port is not USB/DOT4 -- confirm this is really the locally attached device."
 }
 
-$status = (Get-WmiObject Win32_Printer -Filter "Name='$($printer.Name -replace "'","''")'").PrinterStatus
+# WQL escapes a quote with a backslash, not by doubling it. Doubling made a
+# printer named "Amy's Printer via USB" an invalid query. Found 2026-10-02.
+$status = (Get-WmiObject Win32_Printer -Filter "Name='$($printer.Name -replace '\\','\\' -replace "'","\'")'").PrinterStatus
 # 3 = Idle, 4 = Printing, 5 = Warming up are all healthy.
 if ($status -notin 3,4,5) { Bad "Printer status code $status (not idle/printing). Check power and cable." }
 else { Good "Printer reachable (status $status)." }
@@ -233,7 +235,7 @@ $OI_IO           = 0x09
 $FULL            = 0x000F000C
 $ACCESS_ALLOWED  = 0
 
-$wmiPrinter = Get-WmiObject Win32_Printer -Filter "Name='$($printer.Name -replace "'","''")'"
+$wmiPrinter = Get-WmiObject Win32_Printer -Filter "Name='$($printer.Name -replace '\\','\\' -replace "'","\'")'"
 $sd = $wmiPrinter.GetSecurityDescriptor().Descriptor
 
 function New-PrinterAce {
@@ -445,11 +447,16 @@ FIX -- do not use Win+R to the share; that forms a credential conflict
     1. Start -> user icon -> Sign out  (a full Windows sign-out, not the tab)
     2. Sign back in. Touch nothing printer-related yet.
     3. cmdkey /add:$tailscaleIp /user:$AccountName /pass
-       (prompts for this account's workstation password)
-    4. rundll32 printui.dll,PrintUIEntry /in /n $unc
+       (prompts for this account's workstation password, typed blind)
+    4. net use \\$tailscaleIp\IPC`$
+       Must say "The command completed successfully." If it says the
+       password or user name is invalid, the saved password is wrong:
+       re-save it (Credential Manager is the reliable way; see the
+       runbook) and repeat this step. Do NOT go on until it passes.
+    5. rundll32 printui.dll,PrintUIEntry /in /n $unc
        Run it ONCE. Error 0x775 = the account is locked on this
        workstation; unlock and reset it here, do not retry there.
-    5. Get-Printer | Select-Object Name,Type,ComputerName   -> Type Connection
+    6. Get-Printer | Select-Object Name,Type,ComputerName   -> Type Connection
 
 Do NOT do this for them over SSM or with a server-wide install. That runs as
 the Sage-side account, writes to HKLM, and exposes the printer to every Sage
