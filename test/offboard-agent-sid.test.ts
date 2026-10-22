@@ -128,3 +128,15 @@ test("workerMatchesEmail falls back to friendly_name only when there is no attri
   const other = { sid: "WK1", friendly_name: "Test User", attributes: JSON.stringify({ email: "x@example.com" }) };
   expect(workerMatchesEmail(other, email)).toBe(false);
 });
+
+test("workerMatchesEmail falls back to friendly_name when attributes are missing, not JSON, or null", () => {
+  expect(workerMatchesEmail({ sid: "WK1", friendly_name: "Test User" }, email)).toBe(true);
+  expect(workerMatchesEmail({ sid: "WK1", friendly_name: "Test User", attributes: "not json" }, email)).toBe(true);
+  expect(workerMatchesEmail({ sid: "WK1", friendly_name: "Test User", attributes: "null" }, email)).toBe(true);
+  expect(workerMatchesEmail({ sid: "WK1", friendly_name: "Someone Else", attributes: "not json" }, email)).toBe(false);
+});
+
+test("workerMatchesEmail ignores a non-string attributes.email instead of throwing", () => {
+  const w = { sid: "WK1", friendly_name: "Test User", attributes: JSON.stringify({ email: 42 }) };
+  expect(workerMatchesEmail(w, email)).toBe(true);
+});

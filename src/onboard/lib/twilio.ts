@@ -75,11 +75,13 @@ export interface TaskRouterWorker {
 export function workerMatchesEmail(w: TaskRouterWorker, email: string): boolean {
   let attrs: any = {};
   try {
-    attrs = JSON.parse(w.attributes ?? "{}");
+    attrs = JSON.parse(w.attributes ?? "{}") ?? {};
   } catch {
     console.warn(`  Twilio worker ${w.sid}: attributes are not JSON; matching on friendly_name only`);
   }
-  if (attrs.email) return attrs.email.toLowerCase() === email.toLowerCase();
+  if (typeof attrs.email === "string" && attrs.email) {
+    return attrs.email.toLowerCase() === email.toLowerCase();
+  }
   return friendlyNameMatchesEmail(w.friendly_name ?? "", email);
 }
 
