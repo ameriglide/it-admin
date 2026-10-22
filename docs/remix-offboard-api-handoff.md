@@ -65,6 +65,8 @@ Purely a tooling marker. The TwiML handler must continue to ignore it — curren
 - Keeps `ag-admin` thin — it orchestrates external systems (Google, Twilio, Amberjack) and delegates Phenix-data concerns to the system that owns them.
 - Adding the `parked` column and its consumers is a Phenix-data concern; landing it in the Remix repo keeps the migration alongside the code that uses it.
 
+Exception: offboard clears `agent.sid` by direct SQL (`src/offboard/lib/phenix-agent.ts`, AG-1355). The clear must follow the TaskRouter worker delete, which `ag-admin` performs after `setAgentInactive` has run, and Remix has no mutation for it; this mirrors onboard, which sets `agent.sid` the same way. It does not publish Phenix's Agent cache invalidation. If Remix grows a mutation that clears the sid, move this there.
+
 ## Order of operations
 
 Once the mutation + query above are merged and a user key is provisioned, `ag-admin` offboard can be built and shipped. The `parkedNumbers` query and the `bin/onboard` reuse logic can land independently afterwards — parked rows will be sitting there waiting.

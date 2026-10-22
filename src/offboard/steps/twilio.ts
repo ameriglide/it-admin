@@ -5,7 +5,7 @@ import {
   deleteWorker,
   deleteCredential,
 } from "../../onboard/lib/twilio";
-import { agentSidsToClear, findAgentSids, clearAgentSid } from "../lib/phenix-agent";
+import { planWorkerTeardown, findAgentSids, clearAgentSid } from "../lib/phenix-agent";
 
 function sipUsernameFromEmail(email: string): string {
   return email.split("@")[0]!.toLowerCase();
@@ -17,41 +17,28 @@ export const twilioStep: Step = {
   async check(ctx: OffboardContext): Promise<boolean> {
     const worker = await findWorkerByEmail(ctx.email);
     const cred = await findCredentialByUsername(sipUsernameFromEmail(ctx.email));
-    const stale = agentSidsToClear(ctx.email, await findAgentSids(ctx.email));
+    const rows = await findAgentSids(ctx.email);
+    const plan = planWorkerTeardown(ctx.email, worker?.sid ?? null, rows);
     console.log(`  Twilio worker: ${worker ? worker.sid : "absent"}`);
     console.log(`  SIP credential: ${cred ? cred.sid : "absent"}`);
-    console.log(`  Phenix agent.sid: ${stale[0]?.sid ?? "null"}`);
-    return worker === null && cred === null && stale.length === 0;
+    if (rows.length === 0) {
+      console.log(`  Phenix agent.sid: no agent row for ${ctx.email}`);
+    } else {
+      console.log(`  Phenix agent.sid: ${rows.map((r) => `${r.id}=${r.sid || "null"}`).join(", ")}`);
+    }
+    if (plan.problem) console.log(`  ⚠ ${plan.problem}`);
+    // A problem keeps the step not-done so every run re-surfaces it in the summary.
+    return cred === null && plan.deleteSids.length === 0 && plan.clear === null && plan.problem === null;
   },
 
   async run(ctx: OffboardContext): Promise<void> {
     const worker = await findWorkerByEmail(ctx.email);
     const cred = await findCredentialByUsername(sipUsernameFromEmail(ctx.email));
-    const stale = agentSidsToClear(ctx.email, await findAgentSids(ctx.email));
+    const rows = await findAgentSids(ctx.email);
+    const plan = planWorkerTeardown(ctx.email, worker?.sid ?? null, rows);
 
-    if (worker) {
-      if (ctx.dryRun) {
-        console.log(`  [dry-run] would delete worker ${worker.sid}`);
-      } else {
-        await deleteWorker(worker.sid);
-        ctx.twilioWorkerSid = worker.sid;
-      }
-    } else {
-      console.log("  Twilio worker: already absent");
-    }
-
-    // Reached only once the worker is deleted or already gone: a failed delete
-    // throws above and leaves agent.sid pointing at the live worker.
-    for (const row of stale) {
-      if (ctx.dryRun) {
-        console.log(`  [dry-run] would clear agent.sid ${row.sid} on Phenix agent ${row.id}`);
-      } else {
-        await clearAgentSid(row);
-        ctx.clearedAgentSid = row.sid;
-        console.log(`  cleared agent.sid ${row.sid} on Phenix agent ${row.id}`);
-      }
-    }
-
+    // The credential does not depend on the worker or agent.sid, so revoke it
+    // first: an ambiguous agent row must not leave a departing user's SIP login live.
     if (cred) {
       if (ctx.dryRun) {
         console.log(`  [dry-run] would delete SIP credential ${cred.sid}`);
@@ -61,6 +48,34 @@ export const twilioStep: Step = {
       }
     } else {
       console.log("  SIP credential: already absent");
+    }
+
+    if (plan.deleteSids.length === 0) console.log("  Twilio worker: already absent");
+    for (const sid of plan.deleteSids) {
+      if (ctx.dryRun) {
+        console.log(`  [dry-run] would delete worker ${sid}`);
+      } else {
+        await deleteWorker(sid);
+        ctx.twilioWorkerSid = sid;
+      }
+    }
+
+    // After the deletes on purpose: if deleteWorker throws, agent.sid keeps
+    // pointing at the still-live worker and a re-run picks it up again.
+    if (plan.clear) {
+      if (ctx.dryRun) {
+        console.log(`  [dry-run] would clear agent.sid ${plan.clear.sid} on Phenix agent ${plan.clear.id}`);
+      } else {
+        await clearAgentSid(plan.clear);
+        ctx.clearedAgentSid = plan.clear.sid;
+        console.log(`  cleared agent.sid ${plan.clear.sid} on Phenix agent ${plan.clear.id}`);
+      }
+    }
+
+    // Reported, not thrown, so the remaining steps (Amberjack, Google) still run.
+    if (plan.problem) {
+      console.warn(`  ⚠ ${plan.problem}`);
+      ctx.agentSidProblem = plan.problem;
     }
   },
 };

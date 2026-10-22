@@ -6,6 +6,7 @@ export interface OffboardContext {
   amberjackEmployeeId?: number;
   twilioWorkerSid?: string | null;
   clearedAgentSid?: string | null;
+  agentSidProblem?: string;
   credentialSid?: string | null;
   gybBackupPath?: string;
   groupEmail?: string;

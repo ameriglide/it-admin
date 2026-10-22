@@ -73,7 +73,11 @@ export async function findWorkerByEmail(email: string): Promise<{ sid: string } 
     const data: any = await twilioFetch(url);
     for (const w of data.workers ?? []) {
       let attrs: any = {};
-      try { attrs = JSON.parse(w.attributes); } catch {}
+      try {
+        attrs = JSON.parse(w.attributes);
+      } catch {
+        console.warn(`  Twilio worker ${w.sid}: attributes are not JSON; matching on friendly_name only`);
+      }
       if (attrs.email && attrs.email.toLowerCase() === email.toLowerCase()) {
         return { sid: w.sid };
       }
