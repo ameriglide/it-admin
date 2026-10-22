@@ -2,43 +2,75 @@ import type { Step, OffboardContext } from "../types";
 import {
   findWorkerByEmail,
   findCredentialByUsername,
+  getWorker,
+  workerMatchesEmail,
   deleteWorker,
   deleteCredential,
 } from "../../onboard/lib/twilio";
-import { planWorkerTeardown, findAgentSids, clearAgentSid } from "../lib/phenix-agent";
+import {
+  type AgentSidRow,
+  type AgentWorkerState,
+  type WorkerTeardownPlan,
+  planWorkerTeardown,
+  sidToVerify,
+  teardownDone,
+  findAgentSids,
+  clearAgentSid,
+} from "../lib/phenix-agent";
 
 function sipUsernameFromEmail(email: string): string {
   return email.split("@")[0]!.toLowerCase();
+}
+
+// Reads the worker, the Phenix agent rows and (when it differs from the email
+// lookup) agent.sid's worker afresh, so every run plans from current state.
+async function inspectWorker(
+  email: string,
+): Promise<{ workerSid: string | null; rows: AgentSidRow[]; plan: WorkerTeardownPlan }> {
+  const worker = await findWorkerByEmail(email);
+  const workerSid = worker?.sid ?? null;
+  const rows = await findAgentSids(email);
+
+  let agentWorker: AgentWorkerState | null = null;
+  const verify = sidToVerify(workerSid, rows);
+  if (verify) {
+    const w = await getWorker(verify);
+    agentWorker = w === null ? "absent" : workerMatchesEmail(w, email) ? "ours" : "foreign";
+  }
+
+  return { workerSid, rows, plan: planWorkerTeardown(email, workerSid, rows, agentWorker) };
 }
 
 export const twilioStep: Step = {
   name: "Twilio",
 
   async check(ctx: OffboardContext): Promise<boolean> {
-    const worker = await findWorkerByEmail(ctx.email);
     const cred = await findCredentialByUsername(sipUsernameFromEmail(ctx.email));
-    const rows = await findAgentSids(ctx.email);
-    const plan = planWorkerTeardown(ctx.email, worker?.sid ?? null, rows);
-    console.log(`  Twilio worker: ${worker ? worker.sid : "absent"}`);
     console.log(`  SIP credential: ${cred ? cred.sid : "absent"}`);
+
+    let inspected;
+    try {
+      inspected = await inspectWorker(ctx.email);
+    } catch (err) {
+      // Not done: run() revokes the credential before hitting the same error.
+      console.log(`  Twilio worker / Phenix agent.sid: could not check (${err})`);
+      return false;
+    }
+    const { workerSid, rows, plan } = inspected;
+    console.log(`  Twilio worker: ${workerSid ?? "absent"}`);
     if (rows.length === 0) {
       console.log(`  Phenix agent.sid: no agent row for ${ctx.email}`);
     } else {
-      console.log(`  Phenix agent.sid: ${rows.map((r) => `${r.id}=${r.sid || "null"}`).join(", ")}`);
+      console.log(`  Phenix agent.sid: ${rows.map((r) => `agent ${r.id}=${r.sid || "null"}`).join(", ")}`);
     }
     if (plan.problem) console.log(`  ⚠ ${plan.problem}`);
-    // A problem keeps the step not-done so every run re-surfaces it in the summary.
-    return cred === null && plan.deleteSids.length === 0 && plan.clear === null && plan.problem === null;
+    return teardownDone(plan, cred !== null);
   },
 
   async run(ctx: OffboardContext): Promise<void> {
-    const worker = await findWorkerByEmail(ctx.email);
+    // The credential depends on neither the worker nor the Phenix DB, so revoke
+    // it before reading either: nothing below may leave a SIP login live.
     const cred = await findCredentialByUsername(sipUsernameFromEmail(ctx.email));
-    const rows = await findAgentSids(ctx.email);
-    const plan = planWorkerTeardown(ctx.email, worker?.sid ?? null, rows);
-
-    // The credential does not depend on the worker or agent.sid, so revoke it
-    // first: an ambiguous agent row must not leave a departing user's SIP login live.
     if (cred) {
       if (ctx.dryRun) {
         console.log(`  [dry-run] would delete SIP credential ${cred.sid}`);
@@ -50,14 +82,21 @@ export const twilioStep: Step = {
       console.log("  SIP credential: already absent");
     }
 
+    const { plan } = await inspectWorker(ctx.email);
+
     if (plan.deleteSids.length === 0) console.log("  Twilio worker: already absent");
+    const deleted: string[] = [];
     for (const sid of plan.deleteSids) {
       if (ctx.dryRun) {
         console.log(`  [dry-run] would delete worker ${sid}`);
       } else {
         await deleteWorker(sid);
-        ctx.twilioWorkerSid = sid;
+        deleted.push(sid);
       }
+    }
+    if (deleted.length) ctx.twilioWorkerSid = deleted.join(", ");
+    if (plan.alreadyGone) {
+      console.log(`  agent.sid ${plan.alreadyGone}: TaskRouter reports no such worker (already gone)`);
     }
 
     // After the deletes on purpose: if deleteWorker throws, agent.sid keeps
@@ -72,7 +111,8 @@ export const twilioStep: Step = {
       }
     }
 
-    // Reported, not thrown, so the remaining steps (Amberjack, Google) still run.
+    // Reported, not thrown, so the remaining steps (Amberjack, Google) still
+    // run; run.ts prints it as manual action and exits non-zero.
     if (plan.problem) {
       console.warn(`  ⚠ ${plan.problem}`);
       ctx.agentSidProblem = plan.problem;

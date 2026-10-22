@@ -137,7 +137,7 @@ bin/offboard --email <addr>
 bin/offboard --first <First> --last <Last>
 ```
 
-Mirror of onboard. Tears down Phenix (via Remix `setAgentInactive` mutation), Twilio worker and SIP credential (then clears the Phenix `agent.sid` that pointed at the worker, by direct SQL), Amberjack `locked = true`, then Google: GYB mailbox backup → user delete with Drive transfer to manager → recreate address as an archive Group → load mail archive back into the group.
+Mirror of onboard. Tears down Phenix (via Remix `setAgentInactive` mutation), Twilio worker and SIP credential (then clears the Phenix `agent.sid` that pointed at the worker, by direct SQL; if that sid is ambiguous or belongs to someone else's live worker it is left alone, the run finishes, and it exits 2 with a MANUAL ACTION REQUIRED note), Amberjack `locked = true`, then Google: GYB mailbox backup → user delete with Drive transfer to manager → recreate address as an archive Group → load mail archive back into the group.
 
 Flags:
 - `--manager <addr>` — skip the interactive manager picker and use this address as the Drive transfer target.

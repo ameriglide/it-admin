@@ -5,51 +5,93 @@ export interface AgentSidRow {
   sid: string | null;
 }
 
+// What TaskRouter says about agent.sid when the email lookup did not return
+// that same worker: gone (404), a live worker that matches the email, or a
+// live worker that belongs to someone else.
+export type AgentWorkerState = "absent" | "ours" | "foreign";
+
 export interface WorkerTeardownPlan {
-  // TaskRouter workers to delete, in order. deleteWorker treats a 404 as done.
+  // TaskRouter workers to delete, in order.
   deleteSids: string[];
   // The agent row whose sid to clear once every deleteSids entry is gone.
   clear: AgentSidRow | null;
+  // agent.sid that TaskRouter already reports as gone, so it is cleared
+  // without a delete.
+  alreadyGone: string | null;
   // Set when the state is ambiguous: nothing is cleared and the operator must
   // resolve it by hand. The worker found by email is still deleted.
   problem: string | null;
 }
 
+function withSids(rows: AgentSidRow[]): AgentSidRow[] {
+  return rows.filter((r) => r.sid);
+}
+
+// The agent.sid that must be looked up in TaskRouter before planning: the one
+// sid the email lookup did not already return. null when there is nothing to
+// verify (no sid, the email lookup found it, or several rows are ambiguous).
+export function sidToVerify(workerByEmail: string | null, rows: AgentSidRow[]): string | null {
+  const sids = withSids(rows);
+  if (sids.length !== 1) return null;
+  return sids[0]!.sid === workerByEmail ? null : sids[0]!.sid;
+}
+
 // Decides how to tear down the departing agent's TaskRouter worker. agent.sid
-// is the source of truth for which worker belongs to the agent: the email
-// lookup can miss workers with older naming, so a sid is cleared only after
-// that exact sid has been deleted. An empty sid counts as no sid.
+// is cleared only once that exact worker is known to be gone, either deleted
+// here or reported absent by TaskRouter. A live worker for someone else is
+// never deleted, and agentWorker is re-read on every run, so a refusal stays
+// in force until someone fixes it by hand. An empty sid counts as no sid.
 export function planWorkerTeardown(
   email: string,
   workerByEmail: string | null,
   rows: AgentSidRow[],
+  agentWorker: AgentWorkerState | null,
 ): WorkerTeardownPlan {
-  const withSid = rows.filter((r) => r.sid);
+  const sids = withSids(rows);
   const byEmail = workerByEmail ? [workerByEmail] : [];
+  const none = { deleteSids: byEmail, clear: null, alreadyGone: null };
 
-  if (withSid.length > 1) {
+  if (sids.length > 1) {
     return {
-      deleteSids: byEmail,
-      clear: null,
+      ...none,
       problem:
-        `${withSid.length} Phenix agent rows for ${email} carry a sid ` +
-        `(ids ${withSid.map((r) => r.id).join(", ")}); clear the right one by hand`,
+        `${sids.length} Phenix agent rows for ${email} carry a sid ` +
+        `(${sids.map((r) => `agent ${r.id}: ${r.sid}`).join(", ")}); ` +
+        `check each worker in TaskRouter, then clear the right agent.sid by hand`,
     };
   }
 
-  const row = withSid[0] ?? null;
-  if (row && workerByEmail && row.sid !== workerByEmail) {
-    return {
-      deleteSids: byEmail,
-      clear: null,
-      problem:
-        `Twilio worker ${workerByEmail} matched ${email} but Phenix agent ${row.id} ` +
-        `has sid ${row.sid}; check ${row.sid} in TaskRouter and clear agent.sid by hand`,
-    };
+  const row = sids[0] ?? null;
+  if (!row || row.sid === workerByEmail) {
+    return { deleteSids: byEmail, clear: row, alreadyGone: null, problem: null };
   }
 
-  const sid = workerByEmail ?? row?.sid ?? null;
-  return { deleteSids: sid ? [sid] : [], clear: row, problem: null };
+  switch (agentWorker) {
+    case "absent":
+      return { deleteSids: byEmail, clear: row, alreadyGone: row.sid, problem: null };
+    case "ours":
+      return { deleteSids: [...byEmail, row.sid!], clear: row, alreadyGone: null, problem: null };
+    case "foreign":
+      return {
+        ...none,
+        problem:
+          `Phenix agent ${row.id} has sid ${row.sid}, a live TaskRouter worker that does not ` +
+          `match ${email}; check it and clear agent.sid by hand`,
+      };
+    case null:
+      throw new Error(`planWorkerTeardown: agent.sid ${row.sid} was not looked up in TaskRouter`);
+  }
+}
+
+// The step is done once nothing is left to delete or clear and nothing needs a
+// person; a problem keeps it not-done so every run re-surfaces it.
+export function teardownDone(plan: WorkerTeardownPlan, credentialPresent: boolean): boolean {
+  return (
+    !credentialPresent &&
+    plan.deleteSids.length === 0 &&
+    plan.clear === null &&
+    plan.problem === null
+  );
 }
 
 // The UPDATE is a compare-and-set on the sid we read; anything other than one
