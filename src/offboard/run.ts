@@ -61,6 +61,7 @@ ${LINE}
 
   Twilio
     Worker SID: ${ctx.twilioWorkerSid ?? "already absent"}
+    Phenix agent.sid cleared: ${ctx.clearedAgentSid ?? "already null"}
     SIP Credential SID: ${ctx.credentialSid ?? "already absent"}
 
   Amberjack
