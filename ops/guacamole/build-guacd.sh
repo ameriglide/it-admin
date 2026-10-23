@@ -20,6 +20,7 @@ GUAC_VERSION="${2:-1.6.0}"
 PREFIX="${PREFIX:-/opt/guacd/freerdp-${FREERDP_VERSION}}"
 SRC="${SRC:-/usr/local/src/guacd-build}"
 JOBS="${JOBS:-2}"     # keep cores free for live sessions while building
+GUACD_TIMEOUT_MS="${GUACD_TIMEOUT_MS:-120000}"   # upstream is 15000; see below
 
 [ "$(id -u)" -eq 0 ] || { echo "run as root" >&2; exit 1; }
 
@@ -65,6 +66,15 @@ if [ ! -d "guacamole-server-${GUAC_VERSION}" ]; then
 fi
 cd "guacamole-server-${GUAC_VERSION}"
 [ -f Makefile ] && make distclean >/dev/null 2>&1 || true
+
+# guacd drops a user after GUACD_TIMEOUT ms with no inbound data ("User is
+# not responding."). Upstream's 15s is shorter than the ~60s timer wake-up
+# Chrome/Edge allow a tab hidden for a few minutes, so the client's 5s nop
+# keep-alive stalls and every user who switches to another app for a while
+# gets dropped. Reproduced 2026-10-23: hidden at 14:55:18, dropped 14:59:40.
+sed -i -E "s/^#define GUACD_TIMEOUT [0-9]+/#define GUACD_TIMEOUT ${GUACD_TIMEOUT_MS}/" src/guacd/proc.h
+grep -q "^#define GUACD_TIMEOUT ${GUACD_TIMEOUT_MS}\$" src/guacd/proc.h \
+  || { echo "failed to set GUACD_TIMEOUT in src/guacd/proc.h" >&2; exit 1; }
 # The rpath matters twice: guacd's direct deps, and libguac's dlopen() of
 # libguac-client-rdp.so, which resolves against libguac's own RUNPATH -- so the
 # new guacd never picks up the old /usr/local/lib client plugins.
