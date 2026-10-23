@@ -185,7 +185,7 @@ that connection uses it:
 
 ```bash
 sudo systemd-run --unit=guacd-canary --uid=guacd --gid=guacd \
-  /opt/guacd/freerdp-3.32.2/sbin/guacd -f -b 127.0.0.1 -l 4823
+  /opt/guacd/freerdp-3.30.0/sbin/guacd -f -b 127.0.0.1 -l 4823
 ```
 
 Cut over with a drop-in. **Restarting guacd drops every open tunnel**; users'
@@ -197,7 +197,7 @@ sudo mkdir -p /etc/systemd/system/guacd.service.d
 sudo tee /etc/systemd/system/guacd.service.d/10-upstream-freerdp.conf >/dev/null <<'CONF'
 [Service]
 ExecStart=
-ExecStart=/opt/guacd/freerdp-3.32.2/sbin/guacd -b 127.0.0.1 -l 4822 -p /run/guacd/guacd.pid
+ExecStart=/opt/guacd/freerdp-3.30.0/sbin/guacd -b 127.0.0.1 -l 4822 -p /run/guacd/guacd.pid
 CONF
 sudo systemctl daemon-reload && sudo systemctl restart guacd
 ```

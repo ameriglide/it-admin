@@ -15,7 +15,12 @@
 #   build-guacd.sh [FREERDP_VERSION] [GUAC_VERSION]
 set -euo pipefail
 
-FREERDP_VERSION="${1:-3.32.2}"
+# 3.30.x is the newest FreeRDP that guacamole-server 1.6.0 works with. 3.31.0
+# moved the GDI cache setup, and 1.6.0 calls gdi_init() from PreConnect, so
+# every connection aborts in gdi_init_ex() (fixed upstream in GUACAMOLE-2328,
+# unreleased as of 2026-10; seen on the canary 2026-10-23). Move past 3.30
+# only together with a guacamole-server release that includes that fix.
+FREERDP_VERSION="${1:-3.30.0}"
 GUAC_VERSION="${2:-1.6.0}"
 PREFIX="${PREFIX:-/opt/guacd/freerdp-${FREERDP_VERSION}}"
 SRC="${SRC:-/usr/local/src/guacd-build}"
