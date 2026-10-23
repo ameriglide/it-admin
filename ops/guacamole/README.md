@@ -173,6 +173,21 @@ ssh ec2-user@<portal> 'sudo nohup bash /tmp/build-guacd.sh > /tmp/build-guacd.lo
 
 Builds run at `nice 19` with 2 jobs, so it is safe during business hours.
 
+The build also raises guacd's compile-time `GUACD_TIMEOUT` (how long guacd
+waits for *any* data from the browser before logging `User is not responding.`
+and dropping the user) from upstream's 15s to 120s; override with
+`GUACD_TIMEOUT_MS`. guacd logged ~110-155 of those drops per weekday, and a
+backgrounded Chrome/Edge tab can stall the client's 5s keep-alive well past 15s.
+
+Canary first: run the new build on a second port and point a single
+connection at it (`guacamole_connection.proxy_hostname/proxy_port`), so only
+that connection uses it:
+
+```bash
+sudo systemd-run --unit=guacd-canary --uid=guacd --gid=guacd \
+  /opt/guacd/freerdp-3.32.2/sbin/guacd -f -b 127.0.0.1 -l 4823
+```
+
 Cut over with a drop-in. **Restarting guacd drops every open tunnel**; users'
 Windows sessions on sage-host survive and the browser reconnects within
 seconds, but do it outside business hours:
