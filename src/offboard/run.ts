@@ -37,6 +37,10 @@ export async function run(
     }
 
     printSummary(ctx);
+    if (ctx.agentSidProblem) {
+      console.error(`⚠ MANUAL ACTION REQUIRED\n  ${ctx.agentSidProblem}\n`);
+      process.exitCode = 2;
+    }
   } catch (err) {
     console.error(`\n✗ Failed during step execution\n`);
     console.error(err);
@@ -61,6 +65,7 @@ ${LINE}
 
   Twilio
     Worker SID: ${ctx.twilioWorkerSid ?? "already absent"}
+    Phenix agent.sid cleared: ${ctx.agentSidProblem ? `NO -- ${ctx.agentSidProblem}` : (ctx.clearedAgentSid ?? "nothing cleared (already null, no agent row, dry-run, or step skipped)")}
     SIP Credential SID: ${ctx.credentialSid ?? "already absent"}
 
   Amberjack

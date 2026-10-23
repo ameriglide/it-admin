@@ -1,6 +1,7 @@
 #!/usr/bin/env bun
 //
-// Offboard a departing employee across Phenix (via Remix GraphQL), Twilio,
+// Offboard a departing employee across Phenix (via Remix GraphQL, plus a
+// direct agent.sid clear once the Twilio worker is deleted), Twilio,
 // Amberjack, and Google Workspace. Idempotent — re-running on a partially
 // offboarded user skips work already done.
 //

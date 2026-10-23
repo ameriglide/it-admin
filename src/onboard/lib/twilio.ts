@@ -65,6 +65,40 @@ function friendlyNameMatchesEmail(friendlyName: string, email: string): boolean 
   return normalized === localPart;
 }
 
+export interface TaskRouterWorker {
+  sid: string;
+  friendly_name?: string;
+  attributes?: string;
+}
+
+// attributes.email when present, else the legacy friendly_name rule above.
+export function workerMatchesEmail(w: TaskRouterWorker, email: string): boolean {
+  let attrs: any = {};
+  try {
+    attrs = JSON.parse(w.attributes ?? "{}") ?? {};
+  } catch {
+    console.warn(`  Twilio worker ${w.sid}: attributes are not JSON; matching on friendly_name only`);
+  }
+  if (typeof attrs.email === "string" && attrs.email) {
+    return attrs.email.toLowerCase() === email.toLowerCase();
+  }
+  return friendlyNameMatchesEmail(w.friendly_name ?? "", email);
+}
+
+// null when TaskRouter answers 404 (no such worker in this workspace).
+export async function getWorker(workerSid: string): Promise<TaskRouterWorker | null> {
+  const env = getEnv();
+  const res = await fetch(`${TASKROUTER}/Workspaces/${env.workspaceSid}/Workers/${workerSid}`, {
+    headers: { ...authHeaders(env) },
+  });
+  if (res.status === 404) return null;
+  if (!res.ok) {
+    const body = await res.text();
+    throw new Error(`Twilio API ${res.status}: ${body}`);
+  }
+  return res.json();
+}
+
 export async function findWorkerByEmail(email: string): Promise<{ sid: string } | null> {
   const env = getEnv();
   let url: string | null =
@@ -72,14 +106,7 @@ export async function findWorkerByEmail(email: string): Promise<{ sid: string } 
   while (url) {
     const data: any = await twilioFetch(url);
     for (const w of data.workers ?? []) {
-      let attrs: any = {};
-      try { attrs = JSON.parse(w.attributes); } catch {}
-      if (attrs.email && attrs.email.toLowerCase() === email.toLowerCase()) {
-        return { sid: w.sid };
-      }
-      if (!attrs.email && friendlyNameMatchesEmail(w.friendly_name ?? "", email)) {
-        return { sid: w.sid };
-      }
+      if (workerMatchesEmail(w, email)) return { sid: w.sid };
     }
     // TaskRouter pages via meta.next_page_url (absolute URL) or null.
     url = data.meta?.next_page_url ?? null;
