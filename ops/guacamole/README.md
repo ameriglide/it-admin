@@ -152,3 +152,45 @@ A healthy portal shows every child as `keep`. Then run it for real
 | `RDP_PORT` | `3389` | connection port that marks a child as "in use" |
 | `GUACD_SERVICE` | `guacd.service` | unit whose MainPID owns the children |
 | `DRY_RUN` | `0` | `1` classifies and prints, kills nothing |
+
+## Upgrading FreeRDP (AG-1356)
+
+AL2023's `freerdp-libs` is 3.6.3. guacd linked against it aborts (SIGABRT,
+`WINPR_ASSERT` in drdynvc `check_open_close_receive` <- `dvcman_channel_close`)
+on essentially every connection teardown -- 100-200 cores a weekday in
+`coredumpctl list` -- and 3.6.3 carries CVE-2026-56297 in that same code
+(fixed in 3.22.0). The abort skips a clean close, so Tomcat waits out its guacd
+timeout and logs every close as `Connection to guacd terminated abnormally`.
+
+`build-guacd.sh` builds upstream FreeRDP plus guacamole-server into an isolated
+prefix (`/opt/guacd/freerdp-<ver>`) with an rpath, leaving the RPM and the
+original `/usr/local` guacd in place:
+
+```bash
+scp -O build-guacd.sh ec2-user@<portal>:/tmp/
+ssh ec2-user@<portal> 'sudo nohup bash /tmp/build-guacd.sh > /tmp/build-guacd.log 2>&1 &'
+```
+
+Builds run at `nice 19` with 2 jobs, so it is safe during business hours.
+
+Cut over with a drop-in. **Restarting guacd drops every open tunnel**; users'
+Windows sessions on sage-host survive and the browser reconnects within
+seconds, but do it outside business hours:
+
+```bash
+sudo mkdir -p /etc/systemd/system/guacd.service.d
+sudo tee /etc/systemd/system/guacd.service.d/10-upstream-freerdp.conf >/dev/null <<'CONF'
+[Service]
+ExecStart=
+ExecStart=/opt/guacd/freerdp-3.32.2/sbin/guacd -b 127.0.0.1 -l 4822 -p /run/guacd/guacd.pid
+CONF
+sudo systemctl daemon-reload && sudo systemctl restart guacd
+```
+
+Verify: `ls -l /proc/$(systemctl show -p MainPID --value guacd)/exe` points
+into `/opt/guacd`, and `/proc/<child>/maps` of a live connection shows the
+`/opt/guacd/.../libfreerdp3.so`, not `/usr/lib64`. After a few disconnects,
+`coredumpctl list --since -1h` should show no new guacd cores.
+
+Roll back: `sudo rm /etc/systemd/system/guacd.service.d/10-upstream-freerdp.conf
+&& sudo systemctl daemon-reload && sudo systemctl restart guacd`.
