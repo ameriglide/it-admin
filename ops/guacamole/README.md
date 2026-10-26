@@ -209,3 +209,31 @@ into `/opt/guacd`, and `/proc/<child>/maps` of a live connection shows the
 
 Roll back: `sudo rm /etc/systemd/system/guacd.service.d/10-upstream-freerdp.conf
 && sudo systemctl daemon-reload && sudo systemctl restart guacd`.
+
+## Client telemetry (AG-1356)
+
+Server logs show that a user went silent or that a stream closed, never what
+the browser saw. `telemetry-extension/` is a JS-only Guacamole extension that
+wraps the browser `WebSocket`, and for every Guacamole tunnel records how it
+ended: who closed it (`by=page` -- Guacamole's own code, e.g. its 15s receive
+timeout -- or `by=net`), the close code, ms since data last arrived (`rg`) and
+left (`sg`), whether the tab was hidden and for how long, and `navigator.onLine`.
+It also records `offline`/`online` events.
+
+Each event is a GET to `/telemetry/ws.gif?...`, which does not exist: Tomcat
+answers 404 and its access log keeps the query string, so there is no backend.
+Events queue in `localStorage` and flush when the network is back, so a drop
+caused by a dead connection is still reported afterwards. Only the numeric
+connection id is sent.
+
+Build and install (Tomcat must restart to load an extension, which drops every
+open tunnel -- do it after hours):
+
+```bash
+cd telemetry-extension && zip -q ../ag1356-telemetry.jar guac-manifest.json telemetry.js
+sudo install -o tomcat -g tomcat -m 0644 ag1356-telemetry.jar /etc/guacamole/extensions/
+sudo systemctl restart tomcat
+```
+
+Read it with `sudo telemetry-report.sh [YYYY-MM-DD]`. Remove the jar and
+restart Tomcat when the investigation is done.
