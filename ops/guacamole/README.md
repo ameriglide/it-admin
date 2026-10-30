@@ -235,5 +235,12 @@ sudo install -o tomcat -g tomcat -m 0644 ag1356-telemetry.jar /etc/guacamole/ext
 sudo systemctl restart tomcat
 ```
 
-Read it with `sudo telemetry-report.sh [YYYY-MM-DD]`. Remove the jar and
-restart Tomcat when the investigation is done.
+The same extension also does a **fast reconnect**: when a tunnel is cut,
+Guacamole shows "server is not currently reachable" with a 15s countdown before
+running its own Reconnect action. The Windows session survives the cut, so the
+extension presses that Reconnect button after ~1s instead -- only while the
+countdown is showing (errors Guacamole already auto-retries) and at most once
+per 30s, so a portal that is genuinely down keeps the normal 15s pacing. Each
+one is logged as `e=fastrc`. Keep this part even after the investigation.
+
+Read it with `sudo telemetry-report.sh [YYYY-MM-DD]`.
