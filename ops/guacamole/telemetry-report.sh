@@ -24,7 +24,9 @@ grep -o 'GET /telemetry/ws.gif?[^ ]*' "$LOG" | sed 's/^GET \/telemetry\/ws.gif?/
   IFS='&' read -ra kv <<<"$qs"
   for p in "${kv[@]}"; do f[${p%%=*}]="${p#*=}"; done
   ts=$(date -u -d "@$(( ${f[t]:-0} / 1000 ))" +%T)
-  name="${NAME[${f[cid]:-}]:-${f[cid]:--}}"
+  # online/offline events fired outside a client page carry no connection id
+  cid="${f[cid]:-}"
+  if [ -n "$cid" ] && [ -n "${NAME[$cid]+x}" ]; then name="${NAME[$cid]}"; else name="${cid:--}"; fi
   printf '%s  %-32s %-7s %-4s %-5s rg=%-7s sg=%-7s vis=%s hid=%-8s on=%s %s\n' \
     "$ts" "${name#Sage 100 - }" "${f[e]:-}" "${f[by]:--}" "${f[code]:--}" \
     "${f[rg]:--}" "${f[sg]:--}" "${f[vis]:-}" "${f[hid]:-}" "${f[on]:-}" "${f[ct]:-}"
