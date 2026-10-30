@@ -129,6 +129,52 @@
     });
     window.WebSocket = TrackedWebSocket;
 
+    /*
+     * Fast reconnect. When a tunnel is cut, Guacamole shows "server is not
+     * currently reachable" with a 15s countdown and then runs its own
+     * Reconnect action -- but only for errors it already considers safe to
+     * retry (TUNNEL_AUTO_RECONNECT / CLIENT_AUTO_RECONNECT in
+     * guacClientNotification.js). The Windows session survives a cut, so the
+     * wait buys nothing. Press Guacamole's own Reconnect button after ~1s,
+     * only when its countdown is showing, at most once per FAST_RECONNECT_GAP
+     * so a portal that is really down still gets the normal 15s pacing.
+     */
+    var FAST_RECONNECT_DELAY = 1000;
+    var FAST_RECONNECT_GAP = 30000;
+    var lastFastReconnect = 0;
+    var pendingReconnect = null;
+
+    function visible(el) {
+        return el && !el.classList.contains('ng-hide') && el.offsetParent !== null;
+    }
+
+    function autoReconnectButton() {
+        if (!/^#\/client\//.test(location.hash)) return null;
+        var forms = document.querySelectorAll('form.notification');
+        for (var i = 0; i < forms.length; i++) {
+            var countdown = forms[i].querySelector('p.countdown-text');
+            var button = forms[i].querySelector('button.reconnect');
+            if (visible(countdown) && visible(button)) return button;
+        }
+        return null;
+    }
+
+    function checkFastReconnect() {
+        if (pendingReconnect || !autoReconnectButton()) return;
+        if (Date.now() - lastFastReconnect < FAST_RECONNECT_GAP) return;
+        pendingReconnect = setTimeout(function () {
+            pendingReconnect = null;
+            var button = autoReconnectButton();
+            if (!button) return;
+            lastFastReconnect = Date.now();
+            record({ e: 'fastrc' });
+            button.click();
+        }, FAST_RECONNECT_DELAY);
+    }
+
+    new MutationObserver(checkFastReconnect).observe(document.documentElement,
+        { childList: true, subtree: true, attributes: true, attributeFilter: ['class'] });
+
     window.addEventListener('offline', function () { record({ e: 'offline' }); });
     window.addEventListener('online', function () { record({ e: 'online' }); });
     setInterval(flush, FLUSH_INTERVAL);
