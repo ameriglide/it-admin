@@ -49,12 +49,29 @@ function Get-ConnectionPrinter {
     @(Get-ChildItem $key | ForEach-Object { $_.PSChildName -replace ',', '\' })
 }
 
+# The spooler's own calls, not WScript.Network or System.Drawing: WScript
+# writes the registry value itself in a driver,port form the spooler never
+# uses and logs no event 823, and System.Drawing's PrinterSettings reports no
+# default as the text "Default printer is not set." with IsDefaultPrinter
+# true, which reads as a printer the user chose.
+if (-not ('AgAdmin.Spooler' -as [type])) {
+    Add-Type -Namespace AgAdmin -Name Spooler -MemberDefinition @'
+[DllImport("winspool.drv", CharSet = CharSet.Unicode, SetLastError = true)]
+public static extern bool SetDefaultPrinter(string name);
+[DllImport("winspool.drv", CharSet = CharSet.Unicode, SetLastError = true)]
+public static extern bool GetDefaultPrinter(System.Text.StringBuilder buffer, ref int size);
+'@
+}
+
 # Asks the spooler, not the registry: this is the call that makes the spooler
-# validate the default and fall back if it cannot use it.
+# validate the default and fall back if it cannot use it. Returns '' when
+# there is no default (ERROR_FILE_NOT_FOUND).
 function Get-DefaultPrinterName {
-    Add-Type -AssemblyName System.Drawing
-    $settings = New-Object System.Drawing.Printing.PrinterSettings
-    if ($settings.IsDefaultPrinter) { return $settings.PrinterName }
+    $size = 0
+    [void][AgAdmin.Spooler]::GetDefaultPrinter($null, [ref]$size)
+    if ($size -eq 0) { return '' }
+    $buffer = New-Object System.Text.StringBuilder $size
+    if ([AgAdmin.Spooler]::GetDefaultPrinter($buffer, [ref]$size)) { return $buffer.ToString() }
     return ''
 }
 
@@ -82,13 +99,6 @@ try {
         if ($WhatIfOnly) {
             Write-Log "whatif: would change default from '$current' to '$wanted'"
             continue
-        }
-        # The spooler's own call, not WScript.Network: that one writes the
-        # registry value itself in a driver,port form the spooler never uses
-        # and logs no event 823.
-        if (-not ('AgAdmin.Spooler' -as [type])) {
-            Add-Type -Namespace AgAdmin -Name Spooler -MemberDefinition `
-                '[DllImport("winspool.drv", CharSet = CharSet.Unicode, SetLastError = true)] public static extern bool SetDefaultPrinter(string name);'
         }
         $ok  = [AgAdmin.Spooler]::SetDefaultPrinter($wanted)
         $err = [System.Runtime.InteropServices.Marshal]::GetLastWin32Error()
