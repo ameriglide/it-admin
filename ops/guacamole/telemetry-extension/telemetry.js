@@ -138,6 +138,8 @@
      * wait buys nothing. Press Guacamole's own Reconnect button after ~1s,
      * only when its countdown is showing, at most once per FAST_RECONNECT_GAP
      * so a portal that is really down still gets the normal 15s pacing.
+     * Hidden tabs are left to that 15s pacing too: every reconnect opens a new
+     * RDP connection, and nobody is waiting on a tab they can't see.
      */
     var FAST_RECONNECT_DELAY = 1000;
     var FAST_RECONNECT_GAP = 30000;
@@ -148,8 +150,12 @@
         return el && !el.classList.contains('ng-hide') && el.offsetParent !== null;
     }
 
+    function tabIsVisible() {
+        return document.visibilityState !== 'hidden';
+    }
+
     function autoReconnectButton() {
-        if (!/^#\/client\//.test(location.hash)) return null;
+        if (!tabIsVisible() || !/^#\/client\//.test(location.hash)) return null;
         var forms = document.querySelectorAll('form.notification');
         for (var i = 0; i < forms.length; i++) {
             var countdown = forms[i].querySelector('p.countdown-text');
@@ -174,6 +180,7 @@
 
     new MutationObserver(checkFastReconnect).observe(document.documentElement,
         { childList: true, subtree: true, attributes: true, attributeFilter: ['class'] });
+    document.addEventListener('visibilitychange', checkFastReconnect);
 
     window.addEventListener('offline', function () { record({ e: 'offline' }); });
     window.addEventListener('online', function () { record({ e: 'online' }); });

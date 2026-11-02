@@ -240,7 +240,10 @@ Guacamole shows "server is not currently reachable" with a 15s countdown before
 running its own Reconnect action. The Windows session survives the cut, so the
 extension presses that Reconnect button after ~1s instead -- only while the
 countdown is showing (errors Guacamole already auto-retries) and at most once
-per 30s, so a portal that is genuinely down keeps the normal 15s pacing. Each
-one is logged as `e=fastrc`. Keep this part even after the investigation.
+per 30s, so a portal that is genuinely down keeps the normal 15s pacing. Hidden
+tabs also keep the 15s pacing, because each reconnect opens a new RDP connection
+and nobody is waiting on them; if the user comes back during a countdown it
+fires then. Each one is logged as `e=fastrc`. Keep this part even after the
+investigation.
 
 Read it with `sudo telemetry-report.sh [YYYY-MM-DD]`.
