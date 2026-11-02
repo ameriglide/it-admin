@@ -19,6 +19,10 @@ export interface Context {
   // Sonar call center preselect (skip prompt when set):
   sonarCallCenter?: string; // call center name as stored in cg2.callcenter
 
+  // Sonar agent.sales. Defaults to true -- IAI agents are sales agents
+  // (Michael, 2026-11-02). Pass --no-sales for a non-selling account.
+  sales?: boolean;
+
   // Populated by steps:
   googlePassword?: string | null; // null = already existed
   amberjackEmployeeId?: number;

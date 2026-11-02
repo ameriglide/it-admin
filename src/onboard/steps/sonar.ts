@@ -65,13 +65,15 @@ export const sonarStep: Step = {
     // calls before their softphone registers. Sonar's "Start taking calls"
     // button is what clears it, and that click is also what adds them to the
     // Asterisk queue (see the 2026-10-21 queue-membership runbook).
+    const sales = ctx.sales ?? true;
+
     await sql`
       INSERT INTO agent (
         key, firstname, lastname, email,
         callcenter, sales, locked, paused, forwarded, penalizedforwarding
       ) VALUES (
         ${ext}, ${ctx.firstName}, ${ctx.lastName}, ${ctx.email},
-        ${callCenter.id}, false, false, true, false, false
+        ${callCenter.id}, ${sales}, false, true, false, false
       )
     `;
 
@@ -79,7 +81,8 @@ export const sonarStep: Step = {
     ctx.extension = ext;
 
     console.log(
-      `  Created Sonar agent ${ext} (${ctx.firstName} ${ctx.lastName}) in ${callCenter.name}, paused.`,
+      `  Created Sonar agent ${ext} (${ctx.firstName} ${ctx.lastName}) in ${callCenter.name}, ` +
+        `sales=${sales}, paused.`,
     );
     console.log(
       `  Skills: add them in Sonar (skilledagent) once the phone is registered.`,

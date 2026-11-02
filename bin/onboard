@@ -19,6 +19,7 @@ const { values } = parseArgs({
     role: { type: "string" },
     extension: { type: "string" },
     "call-center": { type: "string" },
+    "no-sales": { type: "boolean", default: false },
   },
   strict: true,
 });
@@ -52,6 +53,7 @@ const ctx: Context = {
   role: values.role,
   extension: values.extension,
   sonarCallCenter: values["call-center"],
+  sales: values["no-sales"] ? false : undefined,
 };
 
 await run(ctx, skip);

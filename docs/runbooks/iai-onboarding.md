@@ -60,6 +60,10 @@ reports.
 Creates the `cg2.agent` row. Required: first name, last name, email. The step
 also asks for a call center (`cg2.callcenter`).
 
+`sales` defaults to **true** — IAI agents are sales agents (Michael,
+2026-11-02). Pass `--no-sales` for a non-selling account. The call center
+rarely matters; pick the obvious one.
+
 It inserts with **`paused = true` on purpose.** A brand-new agent should not be
 handed live calls before their softphone registers. The agent clears it
 themselves with Sonar's "Start taking calls", and that click is also what adds
@@ -88,6 +92,17 @@ Deliberate choices:
   tailnet address; removing Tailscale from the phone path is the point of the
   current PBX (decision, 2026-10-26).
 
+### Until cutover, agents get two accounts
+
+The PBX step covers the **current** PBX only. Until cutover, an agent also
+needs the retired PBX's account alongside it, kept as the **default** (Michael,
+2026-11-02: cutover timing is not yet fixed). That old account is set up by
+hand — it is chan_sip over UDP and reached through the Tailscale subnet route,
+so it does not fit this step's TLS/SRTP shape and is deliberately not
+automated.
+
+This applies even on a brand-new machine with nothing on it.
+
 ### The blocker you will hit with a new hire
 
 Migrated extensions sit on a **disabled endpoint template**: they cannot
@@ -95,6 +110,11 @@ register and cannot place calls. Only a handful are enabled. A new hire's
 extension is therefore almost certainly disabled, and **nothing in this repo
 can enable it** — that is a server-side template change plus a strong secret,
 and the secret has to be added to the 1Password item.
+
+An agent who already had an account on the retired PBX should *already* have
+been migrated, extension and password included. If they are missing from the
+1Password item, that item is wrong rather than the agent being genuinely new —
+get it corrected rather than allocating them a second extension.
 
 The step fails loudly in that case rather than emitting a sheet that cannot
 work. Keep `PBX_ENABLED_EXTENSIONS` current, or leave it unset to skip the
