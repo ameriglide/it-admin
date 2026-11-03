@@ -152,3 +152,98 @@ A healthy portal shows every child as `keep`. Then run it for real
 | `RDP_PORT` | `3389` | connection port that marks a child as "in use" |
 | `GUACD_SERVICE` | `guacd.service` | unit whose MainPID owns the children |
 | `DRY_RUN` | `0` | `1` classifies and prints, kills nothing |
+
+## Upgrading FreeRDP (AG-1356)
+
+AL2023's `freerdp-libs` is 3.6.3. guacd linked against it aborts (SIGABRT,
+`WINPR_ASSERT` in drdynvc `check_open_close_receive` <- `dvcman_channel_close`)
+on essentially every connection teardown -- 100-200 cores a weekday in
+`coredumpctl list` -- and 3.6.3 carries CVE-2026-56297 in that same code
+(fixed in 3.22.0). The abort skips a clean close, so Tomcat waits out its guacd
+timeout and logs every close as `Connection to guacd terminated abnormally`.
+
+`build-guacd.sh` builds upstream FreeRDP plus guacamole-server into an isolated
+prefix (`/opt/guacd/freerdp-<ver>`) with an rpath, leaving the RPM and the
+original `/usr/local` guacd in place:
+
+```bash
+scp -O build-guacd.sh ec2-user@<portal>:/tmp/
+ssh ec2-user@<portal> 'sudo nohup bash /tmp/build-guacd.sh > /tmp/build-guacd.log 2>&1 &'
+```
+
+Builds run at `nice 19` with 2 jobs, so it is safe during business hours.
+
+The build also raises guacd's compile-time `GUACD_TIMEOUT` (how long guacd
+waits for *any* data from the browser before logging `User is not responding.`
+and dropping the user) from upstream's 15s to 120s; override with
+`GUACD_TIMEOUT_MS`. guacd logged ~110-155 of those drops per weekday, and a
+backgrounded Chrome/Edge tab can stall the client's 5s keep-alive well past 15s.
+
+Canary first: run the new build on a second port and point a single
+connection at it (`guacamole_connection.proxy_hostname/proxy_port`), so only
+that connection uses it:
+
+```bash
+sudo systemd-run --unit=guacd-canary --uid=guacd --gid=guacd \
+  /opt/guacd/freerdp-3.30.0/sbin/guacd -f -b 127.0.0.1 -l 4823
+```
+
+Cut over with a drop-in. **Restarting guacd drops every open tunnel**; users'
+Windows sessions on sage-host survive and the browser reconnects within
+seconds, but do it outside business hours:
+
+```bash
+sudo mkdir -p /etc/systemd/system/guacd.service.d
+sudo tee /etc/systemd/system/guacd.service.d/10-upstream-freerdp.conf >/dev/null <<'CONF'
+[Service]
+ExecStart=
+ExecStart=/opt/guacd/freerdp-3.30.0/sbin/guacd -b 127.0.0.1 -l 4822 -p /run/guacd/guacd.pid
+CONF
+sudo systemctl daemon-reload && sudo systemctl restart guacd
+```
+
+Verify: `ls -l /proc/$(systemctl show -p MainPID --value guacd)/exe` points
+into `/opt/guacd`, and `/proc/<child>/maps` of a live connection shows the
+`/opt/guacd/.../libfreerdp3.so`, not `/usr/lib64`. After a few disconnects,
+`coredumpctl list --since -1h` should show no new guacd cores.
+
+Roll back: `sudo rm /etc/systemd/system/guacd.service.d/10-upstream-freerdp.conf
+&& sudo systemctl daemon-reload && sudo systemctl restart guacd`.
+
+## Client telemetry (AG-1356)
+
+Server logs show that a user went silent or that a stream closed, never what
+the browser saw. `telemetry-extension/` is a JS-only Guacamole extension that
+wraps the browser `WebSocket`, and for every Guacamole tunnel records how it
+ended: who closed it (`by=page` -- Guacamole's own code, e.g. its 15s receive
+timeout -- or `by=net`), the close code, ms since data last arrived (`rg`) and
+left (`sg`), whether the tab was hidden and for how long, and `navigator.onLine`.
+It also records `offline`/`online` events.
+
+Each event is a GET to `/telemetry/ws.gif?...`, which does not exist: Tomcat
+answers 404 and its access log keeps the query string, so there is no backend.
+Events queue in `localStorage` and flush when the network is back, so a drop
+caused by a dead connection is still reported afterwards. Only the numeric
+connection id is sent.
+
+Build and install (Tomcat must restart to load an extension, which drops every
+open tunnel -- do it after hours):
+
+```bash
+cd telemetry-extension && zip -q ../ag1356-telemetry.jar guac-manifest.json telemetry.js
+sudo install -o tomcat -g tomcat -m 0644 ag1356-telemetry.jar /etc/guacamole/extensions/
+sudo systemctl restart tomcat
+```
+
+The same extension also does a **fast reconnect**: when a tunnel is cut,
+Guacamole shows "server is not currently reachable" with a 15s countdown before
+running its own Reconnect action. The Windows session survives the cut, so the
+extension presses that Reconnect button after ~1s instead -- only while the
+countdown is showing (errors Guacamole already auto-retries) and at most once
+per 30s, so a portal that is genuinely down keeps the normal 15s pacing. Hidden
+tabs also keep the 15s pacing, because each reconnect opens a new RDP connection
+and nobody is waiting on them; if the user comes back during a countdown it
+fires then. Each one is logged as `e=fastrc`. Keep this part even after the
+investigation.
+
+Read it with `sudo telemetry-report.sh [YYYY-MM-DD]`.

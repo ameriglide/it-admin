@@ -1,0 +1,6 @@
+{
+    "guacamoleVersion" : "1.6.0",
+    "name"             : "AG-1356 tunnel telemetry",
+    "namespace"        : "ag1356-telemetry",
+    "js"               : [ "telemetry.js" ]
+}
