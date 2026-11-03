@@ -14,3 +14,6 @@ service-account.json
 
 # Contains internal tailnet FQDN; generate locally, do not commit.
 scripts/*.rdp
+
+# Playwright MCP browser tool drops console/page logs here.
+.playwright-mcp/
