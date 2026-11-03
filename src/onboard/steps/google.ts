@@ -27,7 +27,10 @@ export const googleStep: Step = {
         name: { givenName: ctx.firstName, familyName: ctx.lastName },
         password,
         changePasswordAtNextLogin: true,
-        orgUnitPath: "/Exempt from MFA",
+        // Org units are per-tenant. AmeriGlide has "/Exempt from MFA";
+        // another Workspace tenant may not, and users.insert fails outright
+        // against an OU that does not exist. Override per tenant in .env.
+        orgUnitPath: process.env.ONBOARD_ORG_UNIT_PATH || "/Exempt from MFA",
       },
     });
 

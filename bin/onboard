@@ -17,6 +17,9 @@ const { values } = parseArgs({
     "direct-line": { type: "boolean", default: false },
     channel: { type: "string" },
     role: { type: "string" },
+    extension: { type: "string" },
+    "call-center": { type: "string" },
+    "no-sales": { type: "boolean", default: false },
   },
   strict: true,
 });
@@ -48,6 +51,9 @@ const ctx: Context = {
   directLine,
   phenixChannel: values.channel,
   role: values.role,
+  extension: values.extension,
+  sonarCallCenter: values["call-center"],
+  sales: values["no-sales"] ? false : undefined,
 };
 
 await run(ctx, skip);

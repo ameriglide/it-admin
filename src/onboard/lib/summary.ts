@@ -21,6 +21,10 @@ ${LINE}
   Phenix
     Agent ID: ${ctx.phenixAgentId ?? "skipped"}
 
+  Sonar
+    Agent Key: ${ctx.sonarAgentKey ?? "skipped"}
+    Taking calls: ${ctx.sonarAgentKey ? "no - paused until the phone registers" : "n/a"}
+
   Twilio
     Worker SID: ${ctx.twilioWorkerSid ?? "skipped"}
     SIP Username: ${ctx.sipUsername ?? "skipped"}
@@ -32,6 +36,10 @@ ${LINE}
   Zoiper
     Config: ${ctx.zoiperConfigPath ?? "not generated"}
     Activation: handled by setup-workstation.ps1 (ZOIPER_USERNAME/PASSWORD in .env)
+
+  PBX (new Sonar PBX, MicroSIP)
+    Extension: ${ctx.extension ?? "skipped"}
+    Account sheet: ${ctx.pbxAccountSheetPath ?? "not generated"}
 
 ${LINE}
   Next: set up the workstation (you'll be prompted), or use bin/copy for one-offs
