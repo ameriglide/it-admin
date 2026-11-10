@@ -43,13 +43,17 @@ function isNotFound(err: any): boolean {
   return status === 404 || status === 403;
 }
 
-function isSoftDeletedSignal(err: any): boolean {
+export function isSoftDeletedSignal(err: any): boolean {
   const status = err?.code ?? err?.response?.status;
   const msg = String(err?.message ?? "");
   // Google returns 400 "Type not supported: userKey" for users that are
   // in the 20-day soft-delete trash window — they can't be fetched by
   // userKey on the live endpoint, only via users.list with showDeleted.
-  return status === 400 && /Type not supported: userKey/i.test(msg);
+  if (status === 400 && /Type not supported: userKey/i.test(msg)) return true;
+  // In the first minutes after users.delete, users.get answers 412
+  // "User is deleted" (seen 2026-11-09, AG-1455) before settling into the
+  // 404 / 400 above. Same meaning: the live directory no longer has them.
+  return status === 412 && /User is deleted/i.test(msg);
 }
 
 export interface DeletedUser {
@@ -232,8 +236,9 @@ export async function waitForUserDeleted(
       await dir.users.get({ userKey: email });
     } catch (err: any) {
       const status = err?.code ?? err?.response?.status;
-      // 404 = fully removed; 400 "Type not supported: userKey" = soft-deleted.
-      // Either state means the live directory no longer resolves this email.
+      // 404 = fully removed; 400 "Type not supported: userKey" and 412
+      // "User is deleted" = soft-deleted. Every one of them means the live
+      // directory no longer resolves this email.
       if (status === 404 || isSoftDeletedSignal(err)) return;
       throw err;
     }
