@@ -1,7 +1,7 @@
-// Sonar's agent key and the PBX extension are the same 4-digit number: cg2's
-// `agent` table is keyed on `key varchar(4)`, and Agent.getCallerId() hands
-// that key straight to Asterisk as the caller id. So an onboarding run has to
-// settle on one number and use it in both places.
+// Sonar's agent key and the PBX extension are the same 4-digit number: the
+// `agent` table (database `cg2`) is keyed on `key varchar(4)`, and
+// Agent.getCallerId() hands that key straight to Asterisk as the caller id. So
+// an onboarding run has to settle on one number and use it in both places.
 
 export const EXTENSION_RE = /^\d{4}$/;
 

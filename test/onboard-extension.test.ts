@@ -13,12 +13,12 @@ afterEach(() => {
 
 describe("assertValidExtension", () => {
   it("accepts a four-digit extension", () => {
-    expect(() => assertValidExtension("7407")).not.toThrow();
+    expect(() => assertValidExtension("9007")).not.toThrow();
   });
 
-  // agent.key is varchar(4): anything longer is silently truncated or rejected
-  // by Postgres, and the PBX endpoint is named after the same number.
-  it.each(["740", "74077", "", "74o7", "7407 "])(
+  // agent.key is varchar(4), which rejects longer values on insert, and PBX
+  // endpoints are all four-digit, so only exactly four digits is valid.
+  it.each(["900", "90077", "", "90o7", "9007 "])(
     "rejects %p",
     (bad) => {
       expect(() => assertValidExtension(bad)).toThrow(/four digits/);
@@ -30,7 +30,7 @@ describe("enabledExtensions", () => {
   it("is null when unset, so the caller treats it as unknown not empty", () => {
     delete process.env.PBX_ENABLED_EXTENSIONS;
     expect(enabledExtensions()).toBeNull();
-    expect(isPbxEnabled("7407")).toBeNull();
+    expect(isPbxEnabled("9007")).toBeNull();
   });
 
   it("is null when set to only whitespace or commas", () => {
@@ -39,13 +39,13 @@ describe("enabledExtensions", () => {
   });
 
   it("trims entries", () => {
-    process.env.PBX_ENABLED_EXTENSIONS = "7014, 7230 ,7401";
-    expect(enabledExtensions()).toEqual(["7014", "7230", "7401"]);
+    process.env.PBX_ENABLED_EXTENSIONS = "9001, 9002 ,9003";
+    expect(enabledExtensions()).toEqual(["9001", "9002", "9003"]);
   });
 
   it("distinguishes enabled from disabled", () => {
-    process.env.PBX_ENABLED_EXTENSIONS = "7014,7407";
-    expect(isPbxEnabled("7407")).toBe(true);
-    expect(isPbxEnabled("7415")).toBe(false);
+    process.env.PBX_ENABLED_EXTENSIONS = "9001,9007";
+    expect(isPbxEnabled("9007")).toBe(true);
+    expect(isPbxEnabled("9015")).toBe(false);
   });
 });

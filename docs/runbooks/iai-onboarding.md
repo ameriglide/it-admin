@@ -1,18 +1,28 @@
 # Onboarding an IAI employee
 
-_last verified: 2026-11-02_
+_last verified: 2026-11-12_
 
 `bin/onboard` serves both tenants from one codebase. Which steps run is decided
-by **which credentials the checkout's `.env` has**, not by a flag:
+**per tenant, by the checkout's `DOMAIN`** (default `ameriglide.com`), not by a
+flag:
+
+- On `ameriglide.com`, Sonar and PBX are skipped, and Amberjack and Phenix are
+  **required** — a missing `AMBERJACK_DATABASE_URL` / `PHENIX_DATABASE_URL`
+  fails the run loudly instead of silently skipping.
+- On any other tenant (IAI), Sonar and PBX are **required** — a missing
+  `SONAR_DATABASE_URL` or `PBX_HOST` fails the run loudly — and Amberjack and
+  Phenix are skipped when their URLs are unset.
+- Twilio, Direct Line and Zoiper still skip whenever `TWILIO_ACCOUNT_SID` is
+  unset, on either tenant.
 
 | Step | Runs when | Tenant |
 | -- | -- | -- |
 | Google, Google Groups | always / `ONBOARD_ROLES` | both |
-| Amberjack | `AMBERJACK_DATABASE_URL` | AmeriGlide |
-| Phenix | `PHENIX_DATABASE_URL` | AmeriGlide |
+| Amberjack | always on ameriglide.com (needs `AMBERJACK_DATABASE_URL`) | AmeriGlide |
+| Phenix | always on ameriglide.com (needs `PHENIX_DATABASE_URL`) | AmeriGlide |
 | Twilio, Direct Line, Zoiper | `TWILIO_ACCOUNT_SID` | AmeriGlide |
-| **Sonar** | `SONAR_DATABASE_URL` | **IAI** |
-| **PBX** | `PBX_HOST` | **IAI** |
+| **Sonar** | always off ameriglide.com (needs `SONAR_DATABASE_URL`) | **IAI** |
+| **PBX** | always off ameriglide.com (needs `PBX_HOST`) | **IAI** |
 | Org directory | `MEM0_API_KEY` + ameriglide.com | AmeriGlide |
 
 So an IAI run needs its own checkout with its own `.env` — the TypeScript
@@ -27,8 +37,8 @@ bin/onboard --first Jane --last Doe --extension 7415 --call-center "..."
 
 ## The one thing to understand first
 
-**In Sonar, the agent's primary key _is_ the phone extension.** `cg2.agent` is
-keyed on `key varchar(4)`, and `Agent.getCallerId()` hands that key straight to
+**In Sonar, the agent's primary key _is_ the phone extension.** The `agent`
+table in the `cg2` database is keyed on `key varchar(4)`, and `Agent.getCallerId()` hands that key straight to
 Asterisk. There is no separate agent id to allocate and no mapping table: pick
 the number once and it is simultaneously the CRM record and the SIP endpoint.
 
@@ -39,28 +49,42 @@ the agent is.
 Two consequences:
 
 - The extension must be free in Sonar **and** enabled on the PBX. The Sonar
-  step checks the first; the PBX step checks the second against
-  `PBX_ENABLED_EXTENSIONS`.
+  step checks both before it writes anything: an extension that
+  `PBX_ENABLED_EXTENSIONS` lists as not enabled is refused **before** the
+  agent row is inserted, so a refused run leaves no stray Sonar row behind.
+  The PBX step checks the same list again when it builds the sheet.
 - Re-running is safe. The Sonar step keys off `email`, so a second run finds
-  the existing agent and adopts its `key` rather than creating a duplicate.
+  the existing agent rather than creating a duplicate. If `--extension` is
+  omitted or equals the existing agent's `key`, that key is adopted and the
+  run carries on. If `--extension` names a **different** number, the run stops
+  with an error naming both — fix the flag (or the Sonar row) rather than
+  expecting the script to re-key an agent. `--call-center` and `--no-sales`
+  are ignored, with a warning, for an agent that already exists.
+- If the PBX step fails after Sonar succeeded (sheet, password lookup), just
+  re-run: Sonar finds the agent it already created and is skipped, and the run
+  resumes at the PBX step.
 
 ## Google
 
 Nothing IAI-specific in the code. The IAI `.env` needs its own service account
 with domain-wide delegation on the IAI tenant, `GOOGLE_ADMIN_EMAIL` for that
-tenant, and `DOMAIN` / `BRAND` / `MARKETING_URL` set to IAI's.
+tenant, `DOMAIN` / `BRAND` / `MARKETING_URL` set to IAI's, and
+**`ONBOARD_ORG_UNIT_PATH` set to an org unit that exists in the IAI
+Workspace**. Left unset it defaults to AmeriGlide's `/Exempt from MFA`, and
+`users.insert` fails on any tenant that does not have that OU.
 
-Sonar authenticates through Google OAuth and `cg2.agent` has no password
+Sonar authenticates through Google OAuth and the `agent` table has no password
 column, so **the Google account is what actually grants Sonar access**. If
 Google fails, nothing downstream is usable regardless of what the Sonar step
 reports.
 
 ## Sonar
 
-Creates the `cg2.agent` row. Required: first name, last name, email. The step
-also asks for a call center (`cg2.callcenter`).
+Creates the row in the `agent` table of the `cg2` database. Required: first
+name, last name, email. The step also asks for a call center (the
+`callcenter` table, same database).
 
-`sales` defaults to **true** — IAI agents are sales agents (Michael,
+`sales` defaults to **true** — IAI agents are sales agents (decided
 2026-11-02). Pass `--no-sales` for a non-selling account. The call center
 rarely matters; pick the obvious one.
 
@@ -71,14 +95,14 @@ them to the Asterisk queue — see the 2026-10-21 queue-membership note in mem0
 (`domain=iai-phones`): an agent who looks available in Sonar but is missing
 from `queue show` is fixed by Stop, then Start.
 
-Skills (`cg2.skilledagent`) are **not** set by the script. Add them in Sonar
+Skills (the `skilledagent` table) are **not** set by the script. Add them in Sonar
 once the phone registers.
 
 ## Phone
 
 The PBX step does not configure anything remotely. It produces the
-field-by-field MicroSIP account sheet for that extension, under `output/`, and
-prints it.
+field-by-field MicroSIP account sheet for that extension, at
+`output/microsip-<ext>-<first>-<last>.txt`, and prints it.
 
 Deliberate choices:
 
@@ -95,7 +119,7 @@ Deliberate choices:
 ### Until cutover, agents get two accounts
 
 The PBX step covers the **current** PBX only. Until cutover, an agent also
-needs the retired PBX's account alongside it, kept as the **default** (Michael,
+needs the retired PBX's account alongside it, kept as the **default** (decided
 2026-11-02: cutover timing is not yet fixed). That old account is set up by
 hand — it is chan_sip over UDP and reached through the Tailscale subnet route,
 so it does not fit this step's TLS/SRTP shape and is deliberately not
@@ -116,16 +140,21 @@ been migrated, extension and password included. If they are missing from the
 1Password item, that item is wrong rather than the agent being genuinely new —
 get it corrected rather than allocating them a second extension.
 
-The step fails loudly in that case rather than emitting a sheet that cannot
-work. Keep `PBX_ENABLED_EXTENSIONS` current, or leave it unset to skip the
-check. Tracking: IAI-35 (softphone rollout), SNR-35 (PBX TLS/SRTP).
+The run refuses a disabled extension rather than emitting a sheet that cannot
+work — and it does so in the Sonar step, before the agent row is inserted, so
+there is nothing to clean up: get the extension enabled (ask the PBX admin),
+add it to `PBX_ENABLED_EXTENSIONS`, and re-run. Keep that list current, or
+leave it unset to skip the check. Tracking: IAI-35 (softphone rollout), SNR-35 (PBX TLS/SRTP).
 
 ### Password
 
 `PBX_OP_ITEM` / `PBX_OP_VAULT` / `PBX_OP_ACCOUNT` point at the 1Password item
 that holds one SIP password per extension, field label = extension. With all
-three set the step fills the password in; otherwise the sheet carries a loud
-placeholder naming where to get it.
+three set the step fills the password in. With none set, or when the 1Password
+lookup fails, the sheet carries a loud placeholder, the step's warning says
+why the lookup failed (not signed in, item or field missing, and so on), and
+the end-of-run summary flags the placeholder password. Setting only one or two
+of the three is a config error, not a silent fallback.
 
 **Use the current PBX's password.** The retired PBX's secret will not work, and
 copying it from an existing softphone account is the most common failure.

@@ -17,10 +17,11 @@ export interface Context {
   extension?: string; // e.g. "7415"
 
   // Sonar call center preselect (skip prompt when set):
-  sonarCallCenter?: string; // call center name as stored in cg2.callcenter
+  sonarCallCenter?: string; // call center name as stored in the `callcenter` table (database cg2)
 
-  // Sonar agent.sales. Defaults to true -- IAI agents are sales agents
-  // (Michael, 2026-11-02). Pass --no-sales for a non-selling account.
+  // Sonar agent.sales. undefined means the default, which is true -- IAI
+  // agents are sales agents (decided 2026-11-02). Pass --no-sales for a
+  // non-selling account.
   sales?: boolean;
 
   // Populated by steps:
@@ -34,9 +35,10 @@ export interface Context {
   phoneNumber?: string;
   zoiperConfigPath?: string;
   groupsJoined?: string[]; // Google Group addresses the user was added to
-  sonarAgentKey?: string; // cg2.agent.key — the 4-digit extension
+  sonarAgentKey?: string; // Sonar `agent.key` (database cg2) — the 4-digit extension
+  sonarAgentCreated?: boolean; // true = this run inserted the Sonar agent; false = it already existed
   pbxAccountSheetPath?: string; // softphone settings written for the operator
-  pbxExtensionEnabled?: boolean; // false = endpoint still disabled on the PBX
+  pbxPasswordMissing?: boolean; // true = the account sheet carries a placeholder password
 }
 
 export interface Step {
