@@ -14,7 +14,7 @@ export interface Context {
   // Sonar/PBX preselect (skip prompt when set). One 4-digit number serves as
   // both the Sonar agent key and the PBX extension — they are the same number,
   // not two ids that happen to match. See docs/runbooks/iai-onboarding.md.
-  extension?: string; // e.g. "7415"
+  extension?: string; // e.g. "9001"
 
   // Sonar call center preselect (skip prompt when set):
   sonarCallCenter?: string; // call center name as stored in the `callcenter` table (database cg2)
@@ -35,9 +35,8 @@ export interface Context {
   phoneNumber?: string;
   zoiperConfigPath?: string;
   groupsJoined?: string[]; // Google Group addresses the user was added to
-  // sonarAgentKey and sonarAgentCreated are always set together by the Sonar
-  // step (check() for an existing agent, run() after the INSERT); neither set
-  // means the step did not complete.
+  // sonarAgentKey, sonarAgentCreated and sonarAgentPaused are set together;
+  // none set means the step was skipped or did not complete.
   sonarAgentKey?: string; // Sonar `agent.key` (database cg2) — the 4-digit extension
   sonarAgentCreated?: boolean; // true = this run inserted the Sonar agent; false = it already existed
   sonarAgentPaused?: boolean; // agent.paused as read or written by the Sonar step

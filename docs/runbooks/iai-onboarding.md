@@ -16,7 +16,9 @@ _last verified: 2026-11-12_
   `PHENIX_DATABASE_URL` unset in an IAI `.env`; if either is set, the preflight
   warns that it will run.
 - Twilio, Direct Line and Zoiper still skip whenever `TWILIO_ACCOUNT_SID` is
-  unset, on either tenant.
+  unset, on either tenant. Off `ameriglide.com`, a set `TWILIO_ACCOUNT_SID`
+  makes them run, and the preflight warns about it the same way as for
+  Amberjack/Phenix.
 
 | Step | Runs when | Tenant |
 | -- | -- | -- |
@@ -42,10 +44,11 @@ Before the first step the run prints `Tenant: <domain>; running: <steps>`.
 Check that line: it is the quickest way to spot a run against the wrong
 checkout's `.env`, or an AmeriGlide step that should not be there.
 
-`--extension`, `--call-center` and `--no-sales` only feed the Sonar and PBX
-steps, so they have **no effect on `ameriglide.com`** (or whenever both of
-those steps are `--skip`'ped); the preflight prints a warning rather than
-failing. On `ameriglide.com` the end-of-run summary has no Sonar or PBX
+`--call-center` and `--no-sales` only feed the Sonar step, and `--extension`
+feeds Sonar and PBX, so they have **no effect on `ameriglide.com`** (or when
+Sonar is `--skip`'ped, for `--call-center` / `--no-sales`; when both Sonar and
+PBX are, for `--extension`). The preflight prints a warning naming the cause
+(the tenant, or the skip) rather than failing. On `ameriglide.com` the end-of-run summary has no Sonar or PBX
 sections either.
 
 ## Preflight: config mistakes fail before anything is written
@@ -64,8 +67,11 @@ checks the following, for each step that is not `--skip`'ped (empty entries in
   - Google: `ONBOARD_ORG_UNIT_PATH`.
 - On either tenant, when Sonar or PBX runs: a given `--extension` must be
   exactly four digits and, when `PBX_ENABLED_EXTENSIONS` is set, appear in
-  that list. When PBX runs but Sonar is `--skip`'ped, `--extension` is
-  required (there is no Sonar prompt to supply it).
+  that list. `PBX_ENABLED_EXTENSIONS` set to something that lists no
+  extensions (`,`, spaces) is itself a problem rather than being read as
+  unset, so a typo cannot quietly turn the check off. When PBX runs but Sonar
+  is `--skip`'ped, `--extension` is required (there is no Sonar prompt to
+  supply it).
 
 Every problem is listed at once and nothing is changed — fix `.env` (or the
 flag) and re-run.
@@ -74,9 +80,11 @@ The preflight does **not** check the Google service account or credentials,
 Twilio, or the Google Groups config (`ONBOARD_ROLES`). Mistakes there still
 surface at run time, possibly after Google has created the user.
 
-It also prints non-blocking warnings: `--extension` / `--call-center` /
-`--no-sales` given when neither Sonar nor PBX runs, and, off `ameriglide.com`,
-that Amberjack or Phenix will run because its URL is set.
+It also prints non-blocking warnings: `--call-center` / `--no-sales` given
+when Sonar does not run, `--extension` given when neither Sonar nor PBX runs,
+and, off `ameriglide.com`, which AmeriGlide steps will run because their env
+is set (Amberjack or Phenix via its URL; Twilio, Direct Line and Zoiper via
+`TWILIO_ACCOUNT_SID`), listing only the ones not `--skip`'ped.
 
 ## The one thing to understand first
 
@@ -117,12 +125,18 @@ Consequences:
   first.** The failure output prints the Google temp password once, because a
   re-run reports the account as "already existed" and never shows it again.
   Pressing Ctrl-C after the Google step does the same: the password is printed
-  before the run exits. Save it, then re-run: Google and Sonar find what they
-  already created, and the run resumes at the step that failed.
+  before the run exits. The password is recorded before the create request is
+  sent, so it is printed even if the run is interrupted (or the network drops)
+  while Google is creating the account; it is dropped only when Google rejects
+  the request (a 4xx), since then no account was created. Save it, then re-run:
+  Google and Sonar find what they already created, and the run resumes at the
+  step that failed.
 
 ## Google
 
-Nothing IAI-specific in the code. The IAI `.env` needs its own service account
+The only tenant-specific code is the org unit: `ONBOARD_ORG_UNIT_PATH`, which
+off `ameriglide.com` has no default. The IAI `.env` needs its own service
+account
 with domain-wide delegation on the IAI tenant, `GOOGLE_ADMIN_EMAIL` for that
 tenant, `DOMAIN` / `BRAND` / `MARKETING_URL` set to IAI's, and
 **`ONBOARD_ORG_UNIT_PATH` set to an org unit that exists in the IAI
@@ -141,8 +155,9 @@ is unusable.
 Creates the row in the `agent` table of the `cg2` database. Required: first
 name, last name, email, and the extension — without `--extension` the step
 prompts `Sonar extension (4 digits)` and, if `PBX_ENABLED_EXTENSIONS` is set
-and does not include the answer, refuses it before inserting. The step also
-asks for a call center (the `callcenter` table, same database).
+and does not include the answer, refuses it before inserting. Without
+`--call-center` the step also prompts for a call center (the `callcenter`
+table, same database).
 
 `sales` defaults to **true** — IAI agents are sales agents (decided
 2026-11-02). Pass `--no-sales` for a non-selling account. The call center

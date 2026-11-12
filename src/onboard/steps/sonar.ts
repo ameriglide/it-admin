@@ -132,19 +132,31 @@ export interface SonarStepDeps {
   sql: () => SqlLike;
   input: (label: string) => Promise<string>;
   choose: (items: string[]) => Promise<string>;
-  pbxEnabled?: (ext: string) => boolean | null; // omitted = enablement unknown
+  // Omitted = the real PBX_ENABLED_EXTENSIONS check. The default is the strict
+  // one on purpose, so a caller that forgets to wire it cannot let a disabled
+  // extension into agent.key.
+  pbxEnabled?: (ext: string) => boolean | null;
+}
+
+interface ExistingAgentRow {
+  key: string;
+  paused: boolean;
+  sales: boolean;
+  callcenter_name: string | null;
 }
 
 export function makeSonarStep(deps: SonarStepDeps): Step {
-  const pbxEnabled = deps.pbxEnabled ?? (() => null);
+  const pbxEnabled = deps.pbxEnabled ?? isPbxEnabled;
 
   return {
     name: "Sonar",
 
     async check(ctx: Context): Promise<boolean> {
       const sql = deps.sql();
-      const rows = await sql<{ key: string; paused: boolean }[]>`
-        SELECT key, paused FROM agent WHERE lower(email) = lower(${ctx.email})
+      const rows = await sql<ExistingAgentRow[]>`
+        SELECT a.key, a.paused, a.sales, c.name AS callcenter_name
+        FROM agent a LEFT JOIN callcenter c ON c.id = a.callcenter
+        WHERE lower(a.email) = lower(${ctx.email})
       `;
       if (rows.length > 1) {
         throw new Error(
@@ -175,9 +187,15 @@ export function makeSonarStep(deps: SonarStepDeps): Step {
       ctx.sonarAgentCreated = false;
       ctx.sonarAgentPaused = row.paused;
 
+      // Warn only about preselects the existing row does not already match: a
+      // resumed run whose first pass applied them has nothing to report.
+      // Names are compared trimmed, as planSonarAgent matches them.
       const ignored: string[] = [];
-      if (ctx.sonarCallCenter) ignored.push(`--call-center "${ctx.sonarCallCenter}"`);
-      if (ctx.sales === false) ignored.push("--no-sales");
+      const wantedCenter = ctx.sonarCallCenter?.trim();
+      if (wantedCenter && wantedCenter !== row.callcenter_name?.trim()) {
+        ignored.push(`--call-center "${ctx.sonarCallCenter}"`);
+      }
+      if (ctx.sales === false && row.sales) ignored.push("--no-sales");
       if (ignored.length) {
         console.log(
           `  Warning: Sonar agent ${row.key} already exists; ${ignored.join(" and ")} ` +

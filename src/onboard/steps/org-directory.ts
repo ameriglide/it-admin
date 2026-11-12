@@ -26,8 +26,8 @@ export function mirrorsOrgDirectory(
 // a convenience mirror, not provisioning: by the time it runs every account
 // exists, so its failure should not turn the run into a failure (exit 1, no
 // printSummary) - the operator would lose the full summary over a cache that
-// the next reseed fixes anyway. (run() does print the temp password on
-// failure, so the password itself is no longer the reason.)
+// the next reseed fixes anyway. (run() prints the temp password on failure
+// too, so the password is not at stake.)
 export const orgDirectoryStep: Step = {
   name: "Org directory",
 

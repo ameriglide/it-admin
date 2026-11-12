@@ -34,17 +34,41 @@ export const googleStep: Step = {
   async run(ctx: Context): Promise<void> {
     const admin = await getDirectoryClient();
     const password = generateTempPassword();
+    const ou = orgUnitPath();
 
-    await admin.users.insert({
-      requestBody: {
-        primaryEmail: ctx.email,
-        name: { givenName: ctx.firstName, familyName: ctx.lastName },
-        password,
-        changePasswordAtNextLogin: true,
-        orgUnitPath: orgUnitPath(),
-      },
-    });
-
+    // Record the password before the insert, not after: if the request
+    // reaches Google but the run is interrupted (Ctrl-C, timeout, network
+    // drop) before the response arrives, the account may exist, and a re-run
+    // only reports it as "already existed". Setting it first lets run() print
+    // it on any failure path. A 4xx means Google rejected the request and no
+    // account was created, so the password is cleared rather than printed as
+    // if it were live; anything else (5xx, network error) leaves it, since
+    // the account may or may not exist.
     ctx.googlePassword = password;
+    try {
+      await admin.users.insert({
+        requestBody: {
+          primaryEmail: ctx.email,
+          name: { givenName: ctx.firstName, familyName: ctx.lastName },
+          password,
+          changePasswordAtNextLogin: true,
+          orgUnitPath: ou,
+        },
+      });
+    } catch (e) {
+      if (isClientError(e)) ctx.googlePassword = undefined;
+      throw e;
+    }
   },
 };
+
+// True for a 4xx response from the Google API. googleapis sets `code` to the
+// HTTP status (a string such as "ECONNRESET" for network errors);
+// response.status is checked too in case `code` is absent.
+export function isClientError(e: unknown): boolean {
+  const err = e as { code?: unknown; response?: { status?: unknown } } | null;
+  return [err?.code, err?.response?.status].some((c) => {
+    const n = typeof c === "string" && c.trim() !== "" ? Number(c) : c;
+    return typeof n === "number" && Number.isInteger(n) && n >= 400 && n <= 499;
+  });
+}

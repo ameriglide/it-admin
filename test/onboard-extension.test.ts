@@ -2,6 +2,7 @@ import { describe, expect, it, afterEach } from "bun:test";
 import {
   assertValidExtension,
   enabledExtensions,
+  enabledExtensionsBlank,
   isPbxEnabled,
 } from "../src/onboard/lib/extension";
 
@@ -36,6 +37,14 @@ describe("enabledExtensions", () => {
   it("is null when set to only whitespace or commas", () => {
     process.env.PBX_ENABLED_EXTENSIONS = " , ,";
     expect(enabledExtensions()).toBeNull();
+  });
+
+  it("enabledExtensionsBlank flags a set-but-empty list, not an unset one", () => {
+    expect(enabledExtensionsBlank({})).toBe(false);
+    expect(enabledExtensionsBlank({ PBX_ENABLED_EXTENSIONS: "" })).toBe(false);
+    expect(enabledExtensionsBlank({ PBX_ENABLED_EXTENSIONS: "," })).toBe(true);
+    expect(enabledExtensionsBlank({ PBX_ENABLED_EXTENSIONS: "  " })).toBe(true);
+    expect(enabledExtensionsBlank({ PBX_ENABLED_EXTENSIONS: "9001" })).toBe(false);
   });
 
   it("trims entries", () => {

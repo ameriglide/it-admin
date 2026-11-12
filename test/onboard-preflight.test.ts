@@ -1,7 +1,7 @@
 import { test, expect, describe } from "bun:test";
 import { preflight } from "../src/onboard/lib/preflight";
 import { planAutoSkips } from "../src/onboard/lib/auto-skips";
-import { orgUnitPath } from "../src/onboard/steps/google";
+import { isClientError, orgUnitPath } from "../src/onboard/steps/google";
 
 type Env = Record<string, string | undefined>;
 
@@ -96,10 +96,50 @@ describe("preflight", () => {
       expect(result(ameriglide, { sales: undefined }).warnings).toEqual([]);
     });
 
-    test("no ignored-flag warning when either Sonar or PBX runs", () => {
+    test("no ignored-flag warning when Sonar runs", () => {
       expect(result(iai, { extension: "9001", sonarCallCenter: "Main" }, ["pbx"]).warnings).toEqual(
         [],
       );
+    });
+
+    test("Sonar skipped on IAI: --call-center/--no-sales warned, --extension not (PBX uses it)", () => {
+      const { problems, warnings } = result(
+        iai,
+        { extension: "9001", sonarCallCenter: "Main", sales: false },
+        ["sonar"],
+      );
+      expect(problems).toEqual([]);
+      expect(warnings).toEqual([
+        "--call-center/--no-sales have no effect: the Sonar step is skipped",
+      ]);
+    });
+
+    test("Sonar and PBX both skipped on IAI: the cause is the skip, not the tenant", () => {
+      expect(
+        result(iai, { extension: "9001", sonarCallCenter: "Main" }, ["sonar", "pbx"]).warnings,
+      ).toEqual(["--extension/--call-center have no effect: the Sonar and PBX steps are skipped"]);
+    });
+
+    test("off ameriglide.com, a set TWILIO_ACCOUNT_SID names the Twilio steps that run", () => {
+      const env = { ...iai, TWILIO_ACCOUNT_SID: "AC123" };
+      const { problems, warnings } = result(env);
+      expect(problems).toEqual([]);
+      expect(warnings).toHaveLength(1);
+      expect(warnings[0]).toContain("inetalliance.net");
+      expect(warnings[0]).toContain("Twilio/Direct Line/Zoiper Config (TWILIO_ACCOUNT_SID)");
+    });
+
+    test("off ameriglide.com, skipped Twilio steps are left out of the warning", () => {
+      const env = { ...iai, TWILIO_ACCOUNT_SID: "AC123" };
+      expect(result(env, {}, ["twilio", "zoiper"]).warnings).toEqual([
+        "tenant is inetalliance.net, but these AmeriGlide steps will run because their env is set: " +
+          "Direct Line (TWILIO_ACCOUNT_SID); if that is a leftover AmeriGlide value, unset it or --skip the step",
+      ]);
+      expect(result(env, {}, ["twilio", "directline", "zoiper"]).warnings).toEqual([]);
+    });
+
+    test("on ameriglide.com, TWILIO_ACCOUNT_SID is not warned about", () => {
+      expect(result({ ...ameriglide, TWILIO_ACCOUNT_SID: "AC123" }).warnings).toEqual([]);
     });
 
     test("off ameriglide.com, a set AMBERJACK/PHENIX URL is named", () => {
@@ -186,6 +226,22 @@ describe("preflight", () => {
     expect(problems[0]).toContain("PBX_ENABLED_EXTENSIONS");
   });
 
+  test.each([",", "  ", " , ,"])(
+    "PBX_ENABLED_EXTENSIONS %j (set, lists nothing) is a problem",
+    (value) => {
+      const problems = check({ ...iai, PBX_ENABLED_EXTENSIONS: value }, "9001");
+      expect(problems).toEqual(["PBX_ENABLED_EXTENSIONS is set but lists no extensions"]);
+    },
+  );
+
+  test("empty PBX_ENABLED_EXTENSIONS is unset, not a problem", () => {
+    expect(check({ ...iai, PBX_ENABLED_EXTENSIONS: "" }, "9001")).toEqual([]);
+  });
+
+  test("blank PBX_ENABLED_EXTENSIONS is not checked when Sonar and PBX do not run", () => {
+    expect(check({ ...ameriglide, PBX_ENABLED_EXTENSIONS: "," })).toEqual([]);
+  });
+
   test("extension in PBX_ENABLED_EXTENSIONS is fine", () => {
     expect(check({ ...iai, PBX_ENABLED_EXTENSIONS: "9001, 9002" }, "9002")).toEqual([]);
   });
@@ -213,6 +269,28 @@ describe("preflight", () => {
   test("extension still checked when only one of sonar/pbx runs", () => {
     expect(check(iai, "12", ["sonar"])).toHaveLength(1);
     expect(check(iai, "12", ["pbx"])).toHaveLength(1);
+  });
+});
+
+// The Google step clears the recorded temp password only on a 4xx (no account
+// was created); other failures keep it so run() prints it.
+describe("isClientError", () => {
+  test.each([400, 404, 409, 499, "409"])("%p is a client error", (code) => {
+    expect(isClientError({ code })).toBe(true);
+  });
+
+  test("response.status is used when code is absent", () => {
+    expect(isClientError({ response: { status: 403 } })).toBe(true);
+  });
+
+  test.each([
+    ["5xx", { code: 503 }],
+    ["network error", { code: "ECONNRESET" }],
+    ["no status", new Error("boom")],
+    ["null", null],
+    ["empty string", { code: "" }],
+  ])("%s is not a client error", (_name, e) => {
+    expect(isClientError(e)).toBe(false);
   });
 });
 

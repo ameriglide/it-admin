@@ -19,14 +19,17 @@ export function isSkipped(key: string, skip: string[]): boolean {
 // default ameriglide.com, trimmed and lowercased):
 //   - ameriglide.com uses Amberjack and Phenix, never Sonar or the PBX. Those
 //     two are always skipped. Amberjack/Phenix are never auto-skipped here: a
-//     missing DATABASE_URL must fail loudly in the step's getter, not turn
-//     into a silent "skipped".
+//     missing DATABASE_URL must fail loudly, not turn into a silent
+//     "skipped". preflight() reports it before any step runs; the step's
+//     getter throwing is only a backstop.
 //   - any other tenant (e.g. inetalliance.net) uses Sonar and the PBX, which
-//     are therefore never auto-skipped (missing env fails in the step), and
-//     has no Amberjack/Phenix unless its env explicitly provides them.
+//     are therefore never auto-skipped (missing config is reported the same
+//     way, by preflight() first), and has no Amberjack/Phenix unless its env
+//     explicitly provides them.
 // Twilio (and the Direct Line / Zoiper steps that consume its SIP
-// credentials), Google Groups, and the org-directory mirror are optional for
-// every tenant and are skipped when their configuration is absent.
+// credentials) and Google Groups are optional for every tenant and are
+// skipped when their configuration is absent. The org-directory mirror is
+// AmeriGlide-only and also needs MEM0_API_KEY; it is skipped otherwise.
 //
 // Pure: returns a new skip list (user entries first, no duplicates, empty or
 // whitespace-only entries dropped - "" would prefix-match every step) and the

@@ -4,12 +4,9 @@ import { isAmeriGlide } from "./tenant";
 const LINE = "══════════════════════════════════════════";
 
 // A Sonar agent that is paused takes no calls, and the pause does not lift on
-// its own: the agent clicks "Start taking calls" in Sonar. The Sonar step
-// records agent.paused on every path that sets sonarAgentKey, so the two
-// sonarAgentCreated branches below are not reached today. They are defensive:
-// should a future path set the key without paused, fall back to what we know
-// from whether this run inserted the agent (new agents start paused; an
-// existing one was left as it was) rather than report "yes" or "n/a".
+// its own: the agent clicks "Start taking calls" in Sonar. The sonarAgentCreated
+// fallback is defensive: the Sonar step always sets sonarAgentPaused alongside
+// sonarAgentKey.
 function takingCalls(ctx: Context): string {
   if (!ctx.sonarAgentKey) return "n/a";
   if (ctx.sonarAgentPaused === true) {

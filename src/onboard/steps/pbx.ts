@@ -27,8 +27,8 @@ function pbxHost(): string {
 const DEFAULT_ACCOUNT = "No";
 
 // One sheet per agent and extension. The extension is in the name so two
-// agents who share a name (or a re-run for a new extension) do not overwrite
-// each other. Names are reduced to ASCII letters, digits and dashes: accents
+// agents who share a name (or a sheet regenerated after the agent's extension
+// changed) do not overwrite each other. Names are reduced to ASCII letters, digits and dashes: accents
 // are stripped (José -> jose) rather than the whole letter dropped, and
 // anything else -- apostrophes, spaces, path separators -- is removed.
 export function sheetFilename(ext: string, firstName: string, lastName: string): string {

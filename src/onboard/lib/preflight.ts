@@ -1,7 +1,7 @@
 import type { Context } from "../types";
 import { isSkipped, stepKey } from "./auto-skips";
 import { isAmeriGlide, tenantDomain } from "./tenant";
-import { EXTENSION_RE, isPbxEnabled } from "./extension";
+import { EXTENSION_RE, enabledExtensionsBlank, isPbxEnabled } from "./extension";
 
 type Env = Record<string, string | undefined>;
 
@@ -25,15 +25,20 @@ export interface PreflightResult {
 //   - any other tenant: SONAR_DATABASE_URL (Sonar); PBX_HOST, and
 //     PBX_OP_ITEM/PBX_OP_VAULT/PBX_OP_ACCOUNT all-or-none (PBX);
 //     ONBOARD_ORG_UNIT_PATH (Google Workspace).
-//   - --extension, when Sonar or PBX runs: four digits, and listed in
+//   - when Sonar or PBX runs: PBX_ENABLED_EXTENSIONS set but listing no
+//     extensions (" ", ","), which would otherwise silently disable the
+//     enabled-extension check; --extension four digits, and listed in
 //     PBX_ENABLED_EXTENSIONS when that list is set.
 //   - PBX runs, Sonar is skipped and there is no --extension (the PBX step
 //     takes the extension from the Sonar step or from --extension).
 // Warnings:
-//   - --extension / --call-center / --no-sales given while neither Sonar nor
-//     PBX runs, so they have no effect.
-//   - off ameriglide.com, Amberjack/Phenix will run because their
-//     DATABASE_URL is set (possibly a leftover AmeriGlide value).
+//   - --call-center / --no-sales given while Sonar does not run, and
+//     --extension given while neither Sonar nor PBX runs, so they have no
+//     effect. The message names the cause: the tenant (ameriglide.com never
+//     runs them) or the user's --skip.
+//   - off ameriglide.com, AmeriGlide steps that will run because their env is
+//     set (possibly a leftover AmeriGlide value): Amberjack/Phenix via their
+//     DATABASE_URL, Twilio/Direct Line/Zoiper via TWILIO_ACCOUNT_SID.
 // Nothing else is checked: Twilio, Google Groups and the org directory are
 // auto-skipped by planAutoSkips when unconfigured.
 //
@@ -81,16 +86,24 @@ export function preflight(
         "ONBOARD_ORG_UNIT_PATH is not set (the Google Workspace step needs this tenant's org unit)",
       );
     }
-    // planAutoSkips runs these on any tenant whose env provides the URL.
+    // planAutoSkips runs these on any tenant whose env provides their config.
     const agSteps: string[] = [];
     if (amberjack && env.AMBERJACK_DATABASE_URL) agSteps.push("Amberjack (AMBERJACK_DATABASE_URL)");
     if (phenix && env.PHENIX_DATABASE_URL) agSteps.push("Phenix (PHENIX_DATABASE_URL)");
+    if (env.TWILIO_ACCOUNT_SID) {
+      const twilio = ["Twilio", "Direct Line", "Zoiper Config"].filter(runs);
+      if (twilio.length) agSteps.push(`${twilio.join("/")} (TWILIO_ACCOUNT_SID)`);
+    }
     if (agSteps.length) {
       warnings.push(
-        `tenant is ${domain}, but ${agSteps.join(" and ")} will run because the URL is set; ` +
-          `if that is a leftover AmeriGlide value, unset it or --skip the step`,
+        `tenant is ${domain}, but these AmeriGlide steps will run because their env is set: ` +
+          `${agSteps.join(", ")}; if that is a leftover AmeriGlide value, unset it or --skip the step`,
       );
     }
+  }
+
+  if ((sonar || pbx) && enabledExtensionsBlank(env)) {
+    problems.push("PBX_ENABLED_EXTENSIONS is set but lists no extensions");
   }
 
   const ext = ctx.extension;
@@ -108,15 +121,21 @@ export function preflight(
     problems.push("--extension is required when the Sonar step is skipped (the PBX step needs it)");
   }
 
-  if (!sonar && !pbx) {
+  // --call-center and --no-sales feed only Sonar; --extension feeds Sonar and
+  // PBX, so it is ignored only when neither runs.
+  if (!sonar) {
     const ignored: string[] = [];
-    if (ext !== undefined) ignored.push("--extension");
+    if (ext !== undefined && !pbx) ignored.push("--extension");
     if (ctx.sonarCallCenter !== undefined) ignored.push("--call-center");
     if (ctx.sales === false) ignored.push("--no-sales");
     if (ignored.length) {
+      const cause = isAmeriGlide(env)
+        ? `Sonar and PBX do not run for ${domain}`
+        : pbx
+          ? "the Sonar step is skipped"
+          : "the Sonar and PBX steps are skipped";
       warnings.push(
-        `${ignored.join("/")} ${ignored.length > 1 ? "have" : "has"} no effect: ` +
-          `Sonar and PBX do not run for ${domain}`,
+        `${ignored.join("/")} ${ignored.length > 1 ? "have" : "has"} no effect: ${cause}`,
       );
     }
   }
