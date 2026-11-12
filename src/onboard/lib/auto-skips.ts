@@ -1,8 +1,6 @@
 import { mirrorsOrgDirectory } from "../steps/org-directory";
 import { isAmeriGlide } from "./tenant";
 
-export { tenantDomain, isAmeriGlide } from "./tenant";
-
 // The key a step is matched by in the --skip list: its name lowercased with
 // whitespace stripped ("Google Groups" -> "googlegroups").
 export function stepKey(name: string): string {
@@ -30,13 +28,14 @@ export function isSkipped(key: string, skip: string[]): boolean {
 // credentials), Google Groups, and the org-directory mirror are optional for
 // every tenant and are skipped when their configuration is absent.
 //
-// Pure: returns a new skip list (user entries first, no duplicates) and the
+// Pure: returns a new skip list (user entries first, no duplicates, empty or
+// whitespace-only entries dropped - "" would prefix-match every step) and the
 // console notes run() prints; userSkip is not modified.
 export function planAutoSkips(
   env: Record<string, string | undefined>,
   userSkip: string[],
 ): { skip: string[]; notes: string[] } {
-  const skip = [...new Set(userSkip)];
+  const skip = [...new Set(userSkip.filter((s) => s.trim() !== ""))];
   const notes: string[] = [];
 
   const add = (keys: string[], note: string) => {

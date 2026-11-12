@@ -30,7 +30,9 @@ const skip = values.skip
   ? values.skip
       .split(",")
       .map((s) => s.trim().toLowerCase())
-      .filter(Boolean) // "a,b," must not yield "", which prefix-matches every step
+      // "a,b," must not yield "", which prefix-matches every step.
+      // planAutoSkips drops such entries too; this keeps the list clean here.
+      .filter(Boolean)
   : [];
 
 const firstName = values.first ?? (await input("First name"));

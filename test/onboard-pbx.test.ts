@@ -150,20 +150,53 @@ function setOpConfig(): void {
 }
 
 // Put a stub `op` first on PATH. It records its arguments, one per line, to
-// <dir>/op-args, then prints/exits as `mode` says. Returns the args file.
-function installOpStub(dir: string, mode: "ok" | "fail" | "empty" | "multi"): string {
+// <dir>/op-args, then prints/exits as `mode` says. Stdout mimics
+// `op item get --fields label=<ext> --format json`: one match is an object,
+// several are an array. Returns the args file.
+type OpMode =
+  | "ok"
+  | "fail"
+  | "empty"
+  | "multi"
+  | "tricky"
+  | "garbage"
+  | "longerr"
+  | "silent";
+
+// A password with a comma and both quote characters, which the plain
+// (CSV-style) `op --fields` output would have quoted or read as two fields.
+const TRICKY = `s3c,r"e't`;
+
+const LONG_ERR = "E".repeat(400);
+
+// Quoted heredoc: the shell expands nothing inside it.
+const stdout = (text: string) => `cat <<'OPEOF'\n${text}\nOPEOF`;
+
+const field = (value: string) =>
+  JSON.stringify({ id: "f1", type: "CONCEALED", label: "9002", value });
+
+function installOpStub(dir: string, mode: OpMode): string {
   const bin = join(dir, "bin");
   mkdirSync(bin, { recursive: true });
   const argsFile = join(dir, "op-args");
   const body = {
-    ok: "echo s3cret",
+    ok: stdout(field("s3cret")),
     fail: [
       'echo "[ERROR] could not get item" >&2',
       'echo "  hint: sign in with op signin" >&2',
       "exit 1",
     ].join("\n"),
-    empty: "exit 0",
-    multi: 'echo "s3cret,0ther"',
+    empty: stdout(field("")),
+    multi: stdout(
+      JSON.stringify([
+        { id: "f1", label: "9002", value: "s3cret" },
+        { id: "f2", label: "9002", value: "0ther" },
+      ]),
+    ),
+    tricky: stdout(field(TRICKY)),
+    garbage: stdout("not json at all"),
+    longerr: `echo "${LONG_ERR}" >&2\nexit 1`,
+    silent: "exit 2",
   }[mode];
   const op = join(bin, "op");
   writeFileSync(op, `#!/bin/sh\nprintf '%s\\n' "$@" > "${argsFile}"\n${body}\n`);
@@ -216,6 +249,7 @@ describe("lookupPassword", () => {
       "--account", "account.example.com",
       "--fields", "label=9002",
       "--reveal",
+      "--format", "json",
     ]);
   });
 
@@ -228,6 +262,36 @@ describe("lookupPassword", () => {
     expect(r.reason).toContain("sign in with op signin");
     expect(r.reason).not.toContain("\n");
     expect(r.reason.length).toBeLessThanOrEqual(300);
+  });
+
+  it("caps a long stderr at 300 characters", async () => {
+    setOpConfig();
+    installOpStub(sb.dir(), "longerr");
+    const r = await lookupPassword("9002");
+    if (r.ok) throw new Error("expected a failed lookup");
+    expect(r.reason.length).toBe(300);
+    expect(r.reason.endsWith("...")).toBe(true);
+    expect(r.reason.startsWith("EEE")).toBe(true);
+  });
+
+  it("reports the exit code when op fails without a message", async () => {
+    setOpConfig();
+    installOpStub(sb.dir(), "silent");
+    expect(await lookupPassword("9002")).toEqual({ ok: false, reason: "op exited 2" });
+  });
+
+  it("passes a password with a comma and quotes through intact", async () => {
+    setOpConfig();
+    installOpStub(sb.dir(), "tricky");
+    expect(await lookupPassword("9002")).toEqual({ ok: true, password: TRICKY });
+  });
+
+  it("reports output that is not JSON, quoting the start of it", async () => {
+    setOpConfig();
+    installOpStub(sb.dir(), "garbage");
+    const r = await lookupPassword("9002");
+    if (r.ok) throw new Error("expected a failed lookup");
+    expect(r.reason).toMatch(/could not parse op output as JSON: not json at all/);
   });
 
   it("reports an empty field", async () => {

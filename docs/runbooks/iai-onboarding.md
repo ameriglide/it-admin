@@ -12,6 +12,9 @@ _last verified: 2026-11-12_
 - On any other tenant (IAI), Sonar, PBX and the Google org unit are
   **required** — `SONAR_DATABASE_URL`, `PBX_HOST` and `ONBOARD_ORG_UNIT_PATH`
   must be set — and Amberjack and Phenix run only if their URLs are set.
+  Those are AmeriGlide steps, so leave `AMBERJACK_DATABASE_URL` and
+  `PHENIX_DATABASE_URL` unset in an IAI `.env`; if either is set, the preflight
+  warns that it will run.
 - Twilio, Direct Line and Zoiper still skip whenever `TWILIO_ACCOUNT_SID` is
   unset, on either tenant.
 
@@ -32,23 +35,48 @@ deployment topology and **are not in this repo**; they live in `.env` and in
 `ameriglide/it-admin-docs`.
 
 ```bash
-bin/onboard --first Jane --last Doe --extension 7415 --call-center "..."
+bin/onboard --first Jane --last Doe --extension 9001 --call-center "..."
 ```
+
+Before the first step the run prints `Tenant: <domain>; running: <steps>`.
+Check that line: it is the quickest way to spot a run against the wrong
+checkout's `.env`, or an AmeriGlide step that should not be there.
+
+`--extension`, `--call-center` and `--no-sales` only feed the Sonar and PBX
+steps, so they have **no effect on `ameriglide.com`** (or whenever both of
+those steps are `--skip`'ped); the preflight prints a warning rather than
+failing. On `ameriglide.com` the end-of-run summary has no Sonar or PBX
+sections either.
 
 ## Preflight: config mistakes fail before anything is written
 
 Before **any** step runs — so before Google creates the account — the run
-checks the configuration for every step that is not `--skip`'ped (empty
-entries in `--skip` are ignored). Off `ameriglide.com` it requires:
+checks the following, for each step that is not `--skip`'ped (empty entries in
+`--skip` are ignored):
 
-- Sonar: `SONAR_DATABASE_URL`.
-- PBX: `PBX_HOST`, and `PBX_OP_ITEM` / `PBX_OP_VAULT` / `PBX_OP_ACCOUNT` set
-  all together or not at all.
-- Google: `ONBOARD_ORG_UNIT_PATH`.
+- On `ameriglide.com`:
+  - Amberjack: `AMBERJACK_DATABASE_URL`.
+  - Phenix: `PHENIX_DATABASE_URL`.
+- On any other tenant:
+  - Sonar: `SONAR_DATABASE_URL`.
+  - PBX: `PBX_HOST`, and `PBX_OP_ITEM` / `PBX_OP_VAULT` / `PBX_OP_ACCOUNT` set
+    all together or not at all.
+  - Google: `ONBOARD_ORG_UNIT_PATH`.
+- On either tenant, when Sonar or PBX runs: a given `--extension` must be
+  exactly four digits and, when `PBX_ENABLED_EXTENSIONS` is set, appear in
+  that list. When PBX runs but Sonar is `--skip`'ped, `--extension` is
+  required (there is no Sonar prompt to supply it).
 
-If `--extension` is given it must be exactly four digits and, when
-`PBX_ENABLED_EXTENSIONS` is set, appear in that list. Every problem is listed
-at once and nothing is changed — fix `.env` (or the flag) and re-run.
+Every problem is listed at once and nothing is changed — fix `.env` (or the
+flag) and re-run.
+
+The preflight does **not** check the Google service account or credentials,
+Twilio, or the Google Groups config (`ONBOARD_ROLES`). Mistakes there still
+surface at run time, possibly after Google has created the user.
+
+It also prints non-blocking warnings: `--extension` / `--call-center` /
+`--no-sales` given when neither Sonar nor PBX runs, and, off `ameriglide.com`,
+that Amberjack or Phenix will run because its URL is set.
 
 ## The one thing to understand first
 
@@ -76,15 +104,21 @@ Consequences:
   with an error naming both — fix the flag (or the Sonar row) rather than
   expecting the script to re-key an agent. `--call-center` and `--no-sales`
   are ignored, with a warning, for an agent that already exists.
-- Configuration mistakes are caught by the preflight, before anything is
-  written. A step can still fail at run time (a database or Google API error,
-  the sheet file not being writable). A failed 1Password lookup does **not**
-  fail the PBX step — see [Password](#password).
+- An existing agent's key is checked too. A key that is not four digits stops
+  the run with an error (fix the Sonar row). A key that is not in
+  `PBX_ENABLED_EXTENSIONS` only gets a warning from the Sonar step, but the
+  PBX step then refuses it — get the extension enabled, as for a new hire.
+- The preflight catches only the configuration mistakes listed
+  [above](#preflight-config-mistakes-fail-before-anything-is-written). A step
+  can still fail at run time (bad Google credentials, a database or Google API
+  error, Twilio, the sheet file not being writable). A failed 1Password lookup
+  does **not** fail the PBX step — see [Password](#password).
 - **If a step fails after Google created the user, record the temp password
   first.** The failure output prints the Google temp password once, because a
   re-run reports the account as "already existed" and never shows it again.
-  Save it, then re-run: Google and Sonar find what they already created, and
-  the run resumes at the step that failed.
+  Pressing Ctrl-C after the Google step does the same: the password is printed
+  before the run exits. Save it, then re-run: Google and Sonar find what they
+  already created, and the run resumes at the step that failed.
 
 ## Google
 
@@ -99,8 +133,8 @@ against an OU the tenant does not have).
 
 Sonar authenticates through Google OAuth and the `agent` table has no password
 column, so **the Google account is what actually grants Sonar access**. If
-Google fails, nothing downstream is usable regardless of what the Sonar step
-reports.
+the Google account is missing (e.g. Google was `--skip`'ped), the Sonar agent
+is unusable.
 
 ## Sonar
 
@@ -186,6 +220,11 @@ why the lookup failed (not signed in, item or field missing, and so on), and
 the end-of-run summary shows `Password: MISSING`. A failed lookup does not
 fail the step. Setting only one or two of the three is a config error caught by
 the preflight, not a silent fallback.
+
+The lookup reads the item with `op ... --format json`, so a password may
+contain commas or quotes. If more than one field on the item carries the
+extension as its label, the lookup reports that rather than guessing, and the
+sheet gets the placeholder.
 
 **Use the current PBX's password.** The retired PBX's secret will not work, and
 copying it from an existing softphone account is the most common failure.

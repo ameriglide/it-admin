@@ -33,8 +33,20 @@ export function getSonar() {
   return sonar;
 }
 
+// Closes every open pool, all at once, so one failing end() cannot leave the
+// others open. Failures are logged, not thrown: this runs in run()'s finally,
+// where a throw would mask the step error being reported.
 export async function closeAll() {
-  if (amberjack) await amberjack.end();
-  if (phenix) await phenix.end();
-  if (sonar) await sonar.end();
+  const pools = [
+    ["Amberjack", amberjack],
+    ["Phenix", phenix],
+    ["Sonar", sonar],
+  ] as const;
+  const open = pools.filter(([, pool]) => pool !== null);
+  const results = await Promise.allSettled(open.map(([, pool]) => pool!.end()));
+  results.forEach((r, i) => {
+    if (r.status === "rejected") {
+      console.error(`Failed to close the ${open[i]![0]} database connection:`, r.reason);
+    }
+  });
 }

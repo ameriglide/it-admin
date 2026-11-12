@@ -27,11 +27,101 @@ const without = (env: Env, ...keys: string[]) => {
   return out;
 };
 
+type Flags = { extension?: string; sonarCallCenter?: string; sales?: boolean };
+
 // What run() passes: the user's skip list plus planAutoSkips' additions.
+const result = (env: Env, flags: Flags = {}, userSkip: string[] = []) =>
+  preflight(env, flags, planAutoSkips(env, userSkip).skip);
+
+// Problems only (most tests).
 const check = (env: Env, extension?: string, userSkip: string[] = []) =>
-  preflight(env, { extension }, planAutoSkips(env, userSkip).skip);
+  result(env, { extension }, userSkip).problems;
 
 describe("preflight", () => {
+  test.each([
+    ["AMBERJACK_DATABASE_URL", "Amberjack"],
+    ["PHENIX_DATABASE_URL", "Phenix"],
+  ])("AmeriGlide missing %s is a problem", (key) => {
+    const problems = check(without(ameriglide, key));
+    expect(problems).toHaveLength(1);
+    expect(problems[0]).toContain(key);
+  });
+
+  test.each([
+    ["AMBERJACK_DATABASE_URL", "amberjack"],
+    ["PHENIX_DATABASE_URL", "phenix"],
+  ])("AmeriGlide missing %s is fine when that step is skipped", (key, step) => {
+    expect(check(without(ameriglide, key), undefined, [step])).toEqual([]);
+  });
+
+  test("PBX runs, Sonar skipped, no --extension: a problem", () => {
+    const problems = check(iai, undefined, ["sonar"]);
+    expect(problems).toHaveLength(1);
+    expect(problems[0]).toContain("--extension is required when the Sonar step is skipped");
+  });
+
+  test("PBX runs, Sonar skipped, with --extension: fine", () => {
+    expect(check(iai, "9001", ["sonar"])).toEqual([]);
+  });
+
+  test("Sonar runs without --extension: fine (Sonar settles it)", () => {
+    expect(check(iai)).toEqual([]);
+  });
+
+  describe("warnings", () => {
+    test("none for a clean run", () => {
+      expect(result(ameriglide).warnings).toEqual([]);
+      expect(result(iai, { extension: "9001" }).warnings).toEqual([]);
+    });
+
+    test("Sonar/PBX flags on ameriglide.com have no effect", () => {
+      const { problems, warnings } = result(ameriglide, {
+        extension: "9001",
+        sonarCallCenter: "Main",
+        sales: false,
+      });
+      expect(problems).toEqual([]);
+      expect(warnings).toEqual([
+        "--extension/--call-center/--no-sales have no effect: Sonar and PBX do not run for ameriglide.com",
+      ]);
+    });
+
+    test("a single ignored flag uses 'has'", () => {
+      expect(result(ameriglide, { sonarCallCenter: "Main" }).warnings).toEqual([
+        "--call-center has no effect: Sonar and PBX do not run for ameriglide.com",
+      ]);
+    });
+
+    test("sales undefined (the default) is not an ignored flag", () => {
+      expect(result(ameriglide, { sales: undefined }).warnings).toEqual([]);
+    });
+
+    test("no ignored-flag warning when either Sonar or PBX runs", () => {
+      expect(result(iai, { extension: "9001", sonarCallCenter: "Main" }, ["pbx"]).warnings).toEqual(
+        [],
+      );
+    });
+
+    test("off ameriglide.com, a set AMBERJACK/PHENIX URL is named", () => {
+      const env = {
+        ...iai,
+        AMBERJACK_DATABASE_URL: "postgres://amberjack",
+        PHENIX_DATABASE_URL: "postgres://phenix",
+      };
+      const { problems, warnings } = result(env);
+      expect(problems).toEqual([]);
+      expect(warnings).toHaveLength(1);
+      expect(warnings[0]).toContain("inetalliance.net");
+      expect(warnings[0]).toContain("Amberjack (AMBERJACK_DATABASE_URL)");
+      expect(warnings[0]).toContain("Phenix (PHENIX_DATABASE_URL)");
+    });
+
+    test("off ameriglide.com, a skipped Amberjack is not warned about", () => {
+      const env = { ...iai, AMBERJACK_DATABASE_URL: "postgres://amberjack" };
+      expect(result(env, {}, ["amberjack"]).warnings).toEqual([]);
+    });
+  });
+
   test("AmeriGlide with no Sonar/PBX/OU vars: no problems", () => {
     expect(check(ameriglide)).toEqual([]);
   });
@@ -76,6 +166,12 @@ describe("preflight", () => {
       "12",
     );
     expect(problems).toHaveLength(5);
+    const mentions = (needle: string) => problems.filter((p) => p.includes(needle)).length;
+    expect(mentions("SONAR_DATABASE_URL")).toBe(1);
+    expect(mentions("PBX_HOST")).toBe(1);
+    expect(mentions("missing: PBX_OP_ITEM")).toBe(1);
+    expect(mentions("ONBOARD_ORG_UNIT_PATH")).toBe(1);
+    expect(mentions('--extension "12" is not four digits')).toBe(1);
   });
 
   test.each(["12", "90011", "9a01", ""])("bad --extension %j is a problem", (ext) => {

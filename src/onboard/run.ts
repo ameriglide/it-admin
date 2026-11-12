@@ -11,9 +11,12 @@ import { pbxStep } from "./steps/pbx";
 import { orgDirectoryStep } from "./steps/org-directory";
 import { isSkipped, planAutoSkips, stepKey } from "./lib/auto-skips";
 import { preflight } from "./lib/preflight";
+import { tenantDomain } from "./lib/tenant";
 import { printSummary } from "./lib/summary";
 import { closeAll } from "./lib/db";
 
+// Order matters: Google first (it creates the account the rest hang off), and
+// Sonar before PBX (the PBX step takes the extension the Sonar step settles).
 export const steps: Step[] = [
   googleStep,
   googleGroupsStep,
@@ -26,6 +29,27 @@ export const steps: Step[] = [
   pbxStep,
   orgDirectoryStep,
 ];
+
+// The Google temp password is shown only once: on re-run Google reports the
+// account as already existing. Any path that ends the run before printSummary
+// must print it.
+function passwordLines(ctx: Context): string[] {
+  if (typeof ctx.googlePassword !== "string") return [];
+  return [
+    `\nGoogle temp password for ${ctx.email}: ${ctx.googlePassword}`,
+    `(it will NOT be shown again on re-run - record it now)`,
+  ];
+}
+
+// What run() prints (to stderr) after a step throws, following the error
+// itself. Pure, for testing.
+export function failureReport(ctx: Context, completed: string[]): string[] {
+  return [
+    `\nCompleted steps: ${completed.join(", ") || "none"}`,
+    ...passwordLines(ctx),
+    `Re-run the same command to resume from where it failed.`,
+  ];
+}
 
 export async function run(
   ctx: Context,
@@ -51,12 +75,25 @@ export async function run(
   // Catch configuration mistakes before anything is written: without this, a
   // missing PBX_HOST or bad --extension would fail after Google had already
   // created the account. Runs before the try, so no DB connection is open.
-  const problems = preflight(process.env, ctx, plan.skip);
+  const { problems, warnings } = preflight(process.env, ctx, plan.skip);
+  for (const w of warnings) console.log(`  Note: ${w}`);
   if (problems.length) {
     console.error(`\nConfiguration problems - nothing has been changed:`);
     for (const p of problems) console.error(`  - ${p}`);
     process.exit(1);
   }
+
+  const running = steps.filter((st) => !isSkipped(stepKey(st.name), plan.skip));
+  console.log(
+    `\nTenant: ${tenantDomain()}; running: ${running.map((st) => st.name).join(", ") || "nothing"}`,
+  );
+
+  // Ctrl-C after the Google step would otherwise lose the temp password.
+  const onSigint = () => {
+    for (const line of passwordLines(ctx)) console.error(line);
+    process.exit(130);
+  };
+  process.once("SIGINT", onSigint);
 
   try {
     for (const step of steps) {
@@ -82,16 +119,10 @@ export async function run(
   } catch (err) {
     console.error(`\n✗ Failed during step execution\n`);
     console.error(err);
-    console.error(`\nCompleted steps: ${completed.join(", ") || "none"}`);
-    // printSummary never ran, and on re-run Google reports the account as
-    // already existing, so this is the only chance to see the password.
-    if (typeof ctx.googlePassword === "string") {
-      console.error(`\nGoogle temp password for ${ctx.email}: ${ctx.googlePassword}`);
-      console.error(`(it will NOT be shown again on re-run - record it now)`);
-    }
-    console.error(`Re-run the same command to resume from where it failed.`);
+    for (const line of failureReport(ctx, completed)) console.error(line);
     process.exit(1);
   } finally {
+    process.removeListener("SIGINT", onSigint);
     await closeAll();
   }
 }

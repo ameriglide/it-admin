@@ -1,10 +1,6 @@
 import { test, expect, describe } from "bun:test";
-import {
-  isAmeriGlide,
-  planAutoSkips,
-  stepKey,
-  tenantDomain,
-} from "../src/onboard/lib/auto-skips";
+import { planAutoSkips, stepKey } from "../src/onboard/lib/auto-skips";
+import { isAmeriGlide, tenantDomain } from "../src/onboard/lib/tenant";
 // DB getters are lazy, so importing the step list opens no connections.
 import { steps } from "../src/onboard/run";
 
@@ -123,6 +119,11 @@ describe("planAutoSkips", () => {
     expect(planAutoSkips(ameriglide, ["sonar", "pbx"]).notes).toEqual([]);
   });
 
+  test("empty and whitespace-only entries are dropped (they would match every step)", () => {
+    expect(planAutoSkips(ameriglide, [""]).skip).not.toContain("");
+    expect(planAutoSkips(ameriglide, ["", "  ", "google"]).skip).toEqual(["google", "sonar", "pbx"]);
+  });
+
   test("does not mutate the input array", () => {
     const userSkip = ["google"];
     const { skip } = planAutoSkips(iai, userSkip);
@@ -153,6 +154,14 @@ test("auto-skip keys match real step keys", () => {
   for (const k of all) {
     expect([...keys].some((key) => key === k || key.startsWith(k))).toBe(true);
   }
+});
+
+test("step order: Google Workspace first, Sonar before PBX", () => {
+  const names = steps.map((s) => s.name);
+  expect(names[0]).toBe("Google Workspace");
+  expect(names).toContain("Sonar");
+  expect(names).toContain("PBX");
+  expect(names.indexOf("Sonar")).toBeLessThan(names.indexOf("PBX"));
 });
 
 test("no step key is a prefix of another (run() matches with startsWith)", () => {

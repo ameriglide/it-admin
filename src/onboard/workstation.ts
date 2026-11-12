@@ -7,6 +7,7 @@
 
 import { runtimeValue } from "../lib/op-runtime";
 import { confirm, input } from "./lib/prompt";
+import { tenantDomain } from "./lib/tenant";
 import type { Context } from "./types";
 
 async function copyToClipboard(text: string): Promise<void> {
@@ -35,7 +36,7 @@ async function pause(): Promise<void> {
 }
 
 export async function walkWorkstationSetup(ctx: Context): Promise<void> {
-  const domain = process.env.DOMAIN ?? "ameriglide.com";
+  const domain = tenantDomain();
   const brand = process.env.BRAND ?? "AmeriGlide";
   const marketingUrl = process.env.MARKETING_URL ?? "https://www.ameriglide.com";
   // The live Tailscale key is in the 1Password runtime item, not .env: bin/copy

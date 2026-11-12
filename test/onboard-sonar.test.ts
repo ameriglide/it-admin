@@ -70,6 +70,26 @@ test("planSonarAgent refuses a call center name that matches more than one row",
   ).toThrow(/More than one Sonar call center is named "Main" \(ids: 1, 3\)/);
 });
 
+test("planSonarAgent matches call-center names ignoring stray whitespace on either side", () => {
+  const padded = [
+    { id: 1, name: " Main  " },
+    { id: 2, name: "Overflow" },
+  ];
+  expect(
+    planSonarAgent({ ...base, callCenters: padded, callCenterName: "Main" }).callCenter.id,
+  ).toBe(1);
+  expect(planSonarAgent({ ...base, callCenterName: "  Overflow " }).callCenter.id).toBe(2);
+});
+
+test("planSonarAgent treats names equal after trimming as duplicates", () => {
+  expect(() =>
+    planSonarAgent({
+      ...base,
+      callCenters: [...callCenters, { id: 3, name: "Main " }],
+    }),
+  ).toThrow(/More than one Sonar call center is named "Main" \(ids: 1, 3\)/);
+});
+
 test("planSonarAgent throws when there are no call centers", () => {
   expect(() => planSonarAgent({ ...base, callCenters: [] })).toThrow(/No call centers/);
 });

@@ -1,7 +1,7 @@
 import type { Step, Context } from "../types";
 import { getSonar } from "../lib/db";
 import { choose, input } from "../lib/prompt";
-import { assertValidExtension, isPbxEnabled } from "../lib/extension";
+import { assertValidExtension, EXTENSION_RE, isPbxEnabled } from "../lib/extension";
 
 // Sonar is the IAI CRM. Its agent record lives in the `agent` table (database
 // `cg2`) and is the counterpart to Phenix's, with one structural difference
@@ -86,18 +86,21 @@ export function preflightSonarAgent(
 // run() as a unique violation.)
 export function planSonarAgent(input: SonarAgentInput): SonarAgentPlan {
   preflightSonarAgent(input);
-  const { ext, callCenters, callCenterName } = input;
-  const matches = callCenters.filter((c) => c.name === callCenterName);
+  const { ext, callCenters } = input;
+  // Compare trimmed names on both sides: gum trims what it returns, so a
+  // Sonar name with stray whitespace could otherwise never be picked.
+  const wanted = input.callCenterName?.trim();
+  const matches = callCenters.filter((c) => c.name.trim() === wanted);
   if (matches.length > 1) {
     throw new Error(
-      `More than one Sonar call center is named "${callCenterName}" (ids: ` +
+      `More than one Sonar call center is named "${wanted}" (ids: ` +
         `${matches.map((c) => c.id).join(", ")}). Rename the duplicate in Sonar first.`,
     );
   }
   const [callCenter] = matches;
   if (!callCenter) {
     throw new Error(
-      `Unknown call center "${callCenterName ?? ""}". ` +
+      `Unknown call center "${wanted ?? ""}". ` +
         `Options: ${callCenters.map((c) => c.name).join(", ")}`,
     );
   }
@@ -151,6 +154,21 @@ export function makeSonarStep(deps: SonarStepDeps): Step {
       }
       const [row] = rows;
       if (!row) return false;
+
+      // The key is adopted as the extension for the PBX step, so it has to be
+      // one. Sonar does not enforce the format (key is just varchar(4)).
+      if (!EXTENSION_RE.test(row.key)) {
+        throw new Error(
+          `Existing Sonar agent ${ctx.email} has key ${row.key}, which is not a ` +
+            `four-digit extension; fix it in Sonar first`,
+        );
+      }
+      if (pbxEnabled(row.key) === false) {
+        console.log(
+          `  Warning: existing Sonar agent ${row.key} is not enabled on the PBX ` +
+            `(not in PBX_ENABLED_EXTENSIONS); the PBX step will refuse it.`,
+        );
+      }
 
       ctx.extension = resolveExistingExtension(row.key, ctx.extension, ctx.email);
       ctx.sonarAgentKey = row.key;
@@ -234,8 +252,10 @@ export function makeSonarStep(deps: SonarStepDeps): Step {
               SELECT firstname, lastname FROM agent WHERE key = ${plan.key}
             `;
           } catch (lookupErr) {
-            // Do not let the follow-up lookup hide the original violation.
-            throw new Error(
+            // Do not let the follow-up lookup hide the original violation:
+            // keep both, inspectable via .errors (and .cause for the original).
+            throw new AggregateError(
+              [err, lookupErr],
               `${violation} (looking up the current holder also failed: ${String(lookupErr)})`,
               { cause: err },
             );

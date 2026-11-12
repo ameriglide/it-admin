@@ -22,9 +22,12 @@ export function mirrorsOrgDirectory(
 // straight away instead of after the next manual reseed (the counterpart of
 // the offboard step that removes them).
 //
-// Unlike every other step, a failure here only warns. This runs last, and a
-// throw would exit before printSummary, which is the only place the new
-// Google temp password is ever shown.
+// Unlike every other step, a failure here only warns. It is the last step and
+// a convenience mirror, not provisioning: by the time it runs every account
+// exists, so its failure should not turn the run into a failure (exit 1, no
+// printSummary) - the operator would lose the full summary over a cache that
+// the next reseed fixes anyway. (run() does print the temp password on
+// failure, so the password itself is no longer the reason.)
 export const orgDirectoryStep: Step = {
   name: "Org directory",
 

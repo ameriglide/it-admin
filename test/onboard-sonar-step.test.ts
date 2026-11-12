@@ -15,11 +15,16 @@ interface Query {
 // a rejected query) or return rows.
 type Response = unknown[] | ((values: unknown[]) => unknown[]);
 
+// Console output and SQL calls, interleaved in the order they happened, so a
+// test can assert that a notice came before a write.
+let events: string[];
+
 function fakeSql(routes: [RegExp, Response][]) {
   const queries: Query[] = [];
   const sql = (async (strings: TemplateStringsArray, ...values: unknown[]) => {
     const text = strings.join("?").replace(/\s+/g, " ").trim();
     queries.push({ text, values });
+    events.push(`sql: ${text}`);
     const route = routes.find(([re]) => re.test(text));
     if (!route) throw new Error(`fakeSql: no route for: ${text}`);
     const [, res] = route;
@@ -45,7 +50,8 @@ function ctx(extra: Partial<Context> = {}): Context {
 
 function setup(opts: {
   routes: [RegExp, Response][];
-  pbxEnabled?: (ext: string) => boolean | null;
+  // A function to use, or "omit" to leave the dep out and get the default.
+  pbxEnabled?: ((ext: string) => boolean | null) | "omit";
   inputValue?: string;
   chooseValue?: string;
 }) {
@@ -61,7 +67,9 @@ function setup(opts: {
       calls.choose++;
       return opts.chooseValue ?? "Main";
     },
-    pbxEnabled: opts.pbxEnabled ?? (() => true),
+    ...(opts.pbxEnabled === "omit"
+      ? {}
+      : { pbxEnabled: opts.pbxEnabled ?? (() => true) }),
   });
   return { step, queries, calls };
 }
@@ -79,8 +87,11 @@ let logs: string[];
 const realLog = console.log;
 beforeEach(() => {
   logs = [];
+  events = [];
   console.log = (...args: unknown[]) => {
-    logs.push(args.map(String).join(" "));
+    const line = args.map(String).join(" ");
+    logs.push(line);
+    events.push(`log: ${line}`);
   };
 });
 afterEach(() => {
@@ -153,6 +164,49 @@ test("check() warns that --call-center and --no-sales are ignored for an existin
   );
 });
 
+test("check() refuses an existing agent whose key is not a four-digit extension", async () => {
+  const { step } = setup({
+    routes: [[/SELECT key, paused FROM agent/, [{ key: "90a", paused: true }]]],
+  });
+  const c = ctx();
+  await expect(step.check(c)).rejects.toThrow(
+    "Existing Sonar agent test.user@example.com has key 90a, which is not a " +
+      "four-digit extension; fix it in Sonar first",
+  );
+  expect(c.extension).toBeUndefined();
+  expect(c.sonarAgentKey).toBeUndefined();
+});
+
+test("check() warns when the existing agent's extension is disabled on the PBX", async () => {
+  const seen: string[] = [];
+  const { step } = setup({
+    routes: [[/SELECT key, paused FROM agent/, [{ key: "9002", paused: true }]]],
+    pbxEnabled: (ext) => {
+      seen.push(ext);
+      return false;
+    },
+  });
+  const c = ctx();
+  expect(await step.check(c)).toBe(true);
+  expect(seen).toEqual(["9002"]);
+  expect(logs.join("\n")).toMatch(
+    /Warning: existing Sonar agent 9002 is not enabled on the PBX.*PBX step will refuse it/,
+  );
+  expect(c.sonarAgentKey).toBe("9002");
+});
+
+test("check() prints no PBX warning for an enabled or unknown extension", async () => {
+  for (const enabled of [true, null]) {
+    logs = [];
+    const { step } = setup({
+      routes: [[/SELECT key, paused FROM agent/, [{ key: "9002", paused: true }]]],
+      pbxEnabled: () => enabled,
+    });
+    await step.check(ctx());
+    expect(logs.join("\n")).not.toMatch(/not enabled on the PBX/);
+  }
+});
+
 test("check() prints no warning when no preselects were given", async () => {
   const { step } = setup({
     routes: [[/SELECT key, paused FROM agent/, [{ key: "9002", paused: true }]]],
@@ -212,6 +266,38 @@ test("run() prompts for the extension when none was given", async () => {
   expect(c.extension).toBe("9005");
 });
 
+test("run() rejects a prompted extension that is not four digits, issuing no SQL", async () => {
+  const { step, queries, calls } = setup({ routes: freshRoutes(), inputValue: "12" });
+  await expect(step.run(ctx())).rejects.toThrow(/four digits/);
+  expect(calls.input).toBe(1);
+  expect(queries).toEqual([]);
+});
+
+test("run() treats an omitted pbxEnabled dep as unknown: proceeds with a note", async () => {
+  const { step, queries } = setup({ routes: freshRoutes(), pbxEnabled: "omit" });
+  const c = ctx({ extension: "9001" });
+  await step.run(c);
+  expect(logs.join("\n")).toMatch(
+    /\(PBX_ENABLED_EXTENSIONS unset - not checking whether 9001 is enabled on the PBX\)/,
+  );
+  expect(queries.some((q) => q.text.startsWith("INSERT INTO agent"))).toBe(true);
+  expect(c.sonarAgentCreated).toBe(true);
+});
+
+test("run() matches a call center whose Sonar name has stray whitespace", async () => {
+  const { step, queries } = setup({
+    routes: [
+      [/^INSERT INTO agent/, []],
+      [/SELECT firstname, lastname FROM agent WHERE key/, []],
+      [/FROM callcenter/, [{ id: 7, name: "  Main " }, { id: 2, name: "Overflow" }]],
+    ],
+    chooseValue: "Main", // gum trims what it returns
+  });
+  await step.run(ctx({ extension: "9001" }));
+  const insert = queries.find((q) => q.text.startsWith("INSERT INTO agent"))!;
+  expect(insert.values[4]).toBe(7);
+});
+
 test("run() refuses a taken key before prompting for a call center", async () => {
   const { step, queries, calls } = setup({
     routes: [
@@ -234,24 +320,15 @@ test("run() refuses an extension disabled on the PBX before prompting", async ()
 });
 
 test("run() says so before the INSERT when PBX enablement is unknown", async () => {
-  const order: string[] = [];
-  const { step } = setup({
-    routes: freshRoutes(() => {
-      order.push("INSERT");
-      return [];
-    }),
-    pbxEnabled: () => null,
-  });
-  const realPush = logs.push.bind(logs);
-  logs.push = (...items: string[]) => {
-    for (const i of items) if (i.includes("PBX_ENABLED_EXTENSIONS unset")) order.push("notice");
-    return realPush(...items);
-  };
+  const { step } = setup({ routes: freshRoutes(), pbxEnabled: () => null });
   await step.run(ctx({ extension: "9001" }));
-  expect(logs.join("\n")).toMatch(
-    /\(PBX_ENABLED_EXTENSIONS unset - not checking whether 9001 is enabled on the PBX\)/,
+  const notice = events.findIndex((e) =>
+    /^log: .*\(PBX_ENABLED_EXTENSIONS unset - not checking whether 9001 is enabled on the PBX\)/.test(e),
   );
-  expect(order).toEqual(["notice", "INSERT"]);
+  const insert = events.findIndex((e) => e.startsWith("sql: INSERT INTO agent"));
+  expect(notice).toBeGreaterThanOrEqual(0);
+  expect(insert).toBeGreaterThanOrEqual(0);
+  expect(notice).toBeLessThan(insert);
 });
 
 test("run() prints no PBX notice when enablement is known", async () => {
@@ -306,6 +383,7 @@ test("run() keeps the 23505 when the follow-up holder lookup fails", async () =>
     code: "23505",
     detail: "Key (key)=(9001) already exists.",
   });
+  const lookupErr = new Error("connection reset");
   const { step } = setup({
     routes: [
       [
@@ -318,7 +396,7 @@ test("run() keeps the 23505 when the follow-up holder lookup fails", async () =>
         /SELECT firstname, lastname FROM agent WHERE key/,
         () => {
           if (keyLookups++ === 0) return [];
-          throw new Error("connection reset");
+          throw lookupErr;
         },
       ],
       [/FROM callcenter/, CALL_CENTERS],
@@ -330,10 +408,14 @@ test("run() keeps the 23505 when the follow-up holder lookup fails", async () =>
   } catch (e) {
     caught = e;
   }
-  expect(caught).toBeInstanceOf(Error);
-  const err = caught as Error;
+  expect(caught).toBeInstanceOf(AggregateError);
+  const err = caught as AggregateError;
   expect(err.message).toMatch(/unique violation: Key \(key\)=\(9001\) already exists/);
   expect(err.message).toMatch(/connection reset/);
+  // Both errors are kept whole, not just flattened into the message.
+  expect(err.errors).toEqual([original, lookupErr]);
+  expect(err.errors[0]).toBe(original);
+  expect(err.errors[1]).toBe(lookupErr);
   expect(err.cause).toBe(original);
 });
 

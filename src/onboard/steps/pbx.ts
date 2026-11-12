@@ -118,6 +118,7 @@ export async function lookupPassword(extension: string): Promise<PasswordLookup>
         "--account", vars.PBX_OP_ACCOUNT!,
         "--fields", `label=${extension}`,
         "--reveal",
+        "--format", "json",
       ],
       // An explicit env makes Bun resolve `op` against the current PATH rather
       // than the one the process started with. The tests depend on this: they
@@ -143,14 +144,44 @@ export async function lookupPassword(extension: string): Promise<PasswordLookup>
     const reason = msg ? (msg.length > 300 ? `${msg.slice(0, 297)}...` : msg) : `op exited ${code}`;
     return { ok: false, reason };
   }
-  const password = out.trim();
-  if (!password) return { ok: false, reason: `field ${extension} is empty` };
-  // When several fields carry the label, op prints them comma-separated (or
-  // one per line). None of them is safe to hand out as "the" password.
-  if (/[,\n]/.test(password)) {
+  return parseOpField(extension, out);
+}
+
+// Parse `op item get --fields label=<ext> --format json`. JSON rather than the
+// plain form because the plain form joins several matches with commas and
+// CSV-quotes values, which makes a password containing a comma or a quote
+// indistinguishable from a multi-field match. One match is an object with a
+// `value`; several matches are an array, and none of them is safe to hand out
+// as "the" password.
+export function parseOpField(extension: string, out: string): PasswordLookup {
+  const text = out.trim();
+  if (!text) return { ok: false, reason: `field ${extension} is empty` };
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(text);
+  } catch {
+    return {
+      ok: false,
+      reason: `could not parse op output as JSON: ${text.slice(0, 100)}`,
+    };
+  }
+  if (Array.isArray(parsed)) {
     return { ok: false, reason: `label ${extension} matched more than one field` };
   }
-  return { ok: true, password };
+  if (typeof parsed !== "object" || parsed === null) {
+    return {
+      ok: false,
+      reason: `could not parse op output as a field: ${text.slice(0, 100)}`,
+    };
+  }
+  const value = (parsed as { value?: unknown }).value;
+  if (value === undefined || value === null || value === "") {
+    return { ok: false, reason: `field ${extension} is empty` };
+  }
+  if (typeof value !== "string") {
+    return { ok: false, reason: `field ${extension} has a non-string value` };
+  }
+  return { ok: true, password: value };
 }
 
 export const pbxStep: Step = {
