@@ -1,4 +1,4 @@
-import { mkdirSync } from "fs";
+import { chmodSync, existsSync, mkdirSync, writeFileSync } from "fs";
 import { join } from "path";
 import type { Step, Context } from "../types";
 import { assertValidExtension, isPbxEnabled } from "../lib/extension";
@@ -82,15 +82,14 @@ Notes
 `;
 }
 
+export type PasswordLookup =
+  | { ok: true; password: string }
+  | { ok: false; reason: string };
+
 // The per-extension secrets live in a 1Password item, one field per extension.
 // Read it if we can; if we cannot, return the reason so the operator sees why
 // the sheet has a placeholder instead of a silently blank password. A partial
 // PBX_OP_* config is a mistake in .env, not "not configured", so it throws.
-export interface PasswordLookup {
-  password: string | null;
-  reason?: string;
-}
-
 export async function lookupPassword(extension: string): Promise<PasswordLookup> {
   const vars = {
     PBX_OP_ITEM: process.env.PBX_OP_ITEM,
@@ -101,7 +100,7 @@ export async function lookupPassword(extension: string): Promise<PasswordLookup>
     .filter(([, v]) => !v)
     .map(([k]) => k);
   if (unset.length === 3) {
-    return { password: null, reason: "PBX_OP_ITEM/PBX_OP_VAULT/PBX_OP_ACCOUNT not set" };
+    return { ok: false, reason: "PBX_OP_ITEM/PBX_OP_VAULT/PBX_OP_ACCOUNT not set" };
   }
   if (unset.length > 0) {
     throw new Error(
@@ -121,15 +120,16 @@ export async function lookupPassword(extension: string): Promise<PasswordLookup>
         "--reveal",
       ],
       // An explicit env makes Bun resolve `op` against the current PATH rather
-      // than the one the process started with.
+      // than the one the process started with. The tests depend on this: they
+      // swap PATH at runtime to hide `op` or to put a stub in front of it.
       { stdout: "pipe", stderr: "pipe", env: { ...process.env } },
     );
   } catch (e) {
     const err = e as NodeJS.ErrnoException;
     if (err.code === "ENOENT") {
-      return { password: null, reason: "1Password CLI (op) not installed" };
+      return { ok: false, reason: "1Password CLI (op) not installed" };
     }
-    return { password: null, reason: `could not run op: ${err.message}` };
+    return { ok: false, reason: `could not run op: ${err.message}` };
   }
   const [out, errText, code] = await Promise.all([
     new Response(proc.stdout).text(),
@@ -137,12 +137,20 @@ export async function lookupPassword(extension: string): Promise<PasswordLookup>
     proc.exited,
   ]);
   if (code !== 0) {
-    const first = errText.trim().split("\n")[0] || `op exited ${code}`;
-    return { password: null, reason: first };
+    // Keep all of op's message -- the useful part is not always the first line
+    // -- but on one line and bounded, since it is printed inline.
+    const msg = errText.trim().replace(/\s*\n\s*/g, " | ");
+    const reason = msg ? (msg.length > 300 ? `${msg.slice(0, 297)}...` : msg) : `op exited ${code}`;
+    return { ok: false, reason };
   }
   const password = out.trim();
-  if (!password) return { password: null, reason: `field ${extension} is empty` };
-  return { password };
+  if (!password) return { ok: false, reason: `field ${extension} is empty` };
+  // When several fields carry the label, op prints them comma-separated (or
+  // one per line). None of them is safe to hand out as "the" password.
+  if (/[,\n]/.test(password)) {
+    return { ok: false, reason: `label ${extension} matched more than one field` };
+  }
+  return { ok: true, password };
 }
 
 export const pbxStep: Step = {
@@ -156,8 +164,8 @@ export const pbxStep: Step = {
     const ext = ctx.extension ?? ctx.sonarAgentKey;
     if (!ext) {
       throw new Error(
-        "No extension set. Pass --extension, or set SONAR_DATABASE_URL so the " +
-          "Sonar step runs and assigns one.",
+        "No extension set. Pass --extension (the Sonar step was skipped, so " +
+          "nothing supplied one).",
       );
     }
     assertValidExtension(ext);
@@ -181,11 +189,12 @@ export const pbxStep: Step = {
       );
     }
 
-    const { password, reason } = await lookupPassword(ext);
-    ctx.pbxPasswordMissing = !password;
-    if (!password) {
+    const lookup = await lookupPassword(ext);
+    const password = lookup.ok ? lookup.password : null;
+    ctx.pbxPasswordMissing = !lookup.ok;
+    if (!lookup.ok) {
       console.log(
-        `  ⚠ No password for ${ext} from 1Password (${reason}) - the sheet will have a placeholder.`,
+        `  ⚠ No password for ${ext} from 1Password (${lookup.reason}) - the sheet will have a placeholder.`,
       );
     }
 
@@ -202,7 +211,11 @@ export const pbxStep: Step = {
     const outDir = join(process.cwd(), "output");
     mkdirSync(outDir, { recursive: true });
     const outPath = join(outDir, sheetFilename(ext, ctx.firstName, ctx.lastName));
-    await Bun.write(outPath, sheet);
+    // The sheet can carry the SIP password: owner-only. `mode` applies only
+    // when the file is created, so tighten a sheet left by an earlier run
+    // before the password goes into it.
+    if (existsSync(outPath)) chmodSync(outPath, 0o600);
+    writeFileSync(outPath, sheet, { mode: 0o600 });
     ctx.pbxAccountSheetPath = outPath;
 
     console.log();

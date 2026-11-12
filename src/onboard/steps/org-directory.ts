@@ -1,5 +1,6 @@
 import type { Step, Context } from "../types";
 import { getDirectoryClient } from "../lib/google";
+import { isAmeriGlide } from "../lib/tenant";
 import {
   orgDirectoryMemoryIds,
   personFromDirectoryUser,
@@ -14,7 +15,7 @@ const RESEED_HINT =
 export function mirrorsOrgDirectory(
   env: Record<string, string | undefined> = process.env,
 ): boolean {
-  return Boolean(env.MEM0_API_KEY) && (env.DOMAIN ?? "ameriglide.com") === "ameriglide.com";
+  return Boolean(env.MEM0_API_KEY) && isAmeriGlide(env);
 }
 
 // Adds the new hire to the org-directory mem0 mirror so /who resolves them

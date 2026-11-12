@@ -61,6 +61,15 @@ test("planSonarAgent throws when no call center was chosen", () => {
   );
 });
 
+test("planSonarAgent refuses a call center name that matches more than one row", () => {
+  expect(() =>
+    planSonarAgent({
+      ...base,
+      callCenters: [...callCenters, { id: 3, name: "Main" }],
+    }),
+  ).toThrow(/More than one Sonar call center is named "Main" \(ids: 1, 3\)/);
+});
+
 test("planSonarAgent throws when there are no call centers", () => {
   expect(() => planSonarAgent({ ...base, callCenters: [] })).toThrow(/No call centers/);
 });

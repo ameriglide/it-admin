@@ -3,6 +3,7 @@
 import "../src/lib/load-env"; // must be first: loads repo-root .env regardless of cwd
 import { parseArgs } from "util";
 import { run } from "../src/onboard/run";
+import { tenantDomain } from "../src/onboard/lib/tenant";
 import { confirm, input } from "../src/onboard/lib/prompt";
 import { walkWorkstationSetup } from "../src/onboard/workstation";
 import type { Context } from "../src/onboard/types";
@@ -26,7 +27,10 @@ const { values } = parseArgs({
 
 const directLine = Bun.argv.includes("--direct-line") ? true : undefined;
 const skip = values.skip
-  ? values.skip.split(",").map((s) => s.trim().toLowerCase())
+  ? values.skip
+      .split(",")
+      .map((s) => s.trim().toLowerCase())
+      .filter(Boolean) // "a,b," must not yield "", which prefix-matches every step
   : [];
 
 const firstName = values.first ?? (await input("First name"));
@@ -37,7 +41,7 @@ if (!firstName || !lastName) {
   process.exit(1);
 }
 
-const domain = process.env.DOMAIN ?? "ameriglide.com";
+const domain = tenantDomain();
 const email =
   values.email ??
   `${firstName.toLowerCase()}.${lastName.toLowerCase()}@${domain}`;

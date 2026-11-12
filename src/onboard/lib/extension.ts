@@ -18,8 +18,10 @@ export function assertValidExtension(ext: string): void {
 // on the disabled endpoint template and cannot register. Set
 // PBX_ENABLED_EXTENSIONS in .env as this drifts; leave it unset to skip the
 // check rather than block on a stale list.
-export function enabledExtensions(): string[] | null {
-  const raw = process.env.PBX_ENABLED_EXTENSIONS;
+export function enabledExtensions(
+  env: Record<string, string | undefined> = process.env,
+): string[] | null {
+  const raw = env.PBX_ENABLED_EXTENSIONS;
   if (!raw) return null;
   const list = raw
     .split(",")
@@ -28,8 +30,11 @@ export function enabledExtensions(): string[] | null {
   return list.length ? list : null;
 }
 
-export function isPbxEnabled(ext: string): boolean | null {
-  const list = enabledExtensions();
+export function isPbxEnabled(
+  ext: string,
+  env: Record<string, string | undefined> = process.env,
+): boolean | null {
+  const list = enabledExtensions(env);
   if (!list) return null; // unknown, not "no"
   return list.includes(ext);
 }

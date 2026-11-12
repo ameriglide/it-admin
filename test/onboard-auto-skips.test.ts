@@ -1,5 +1,10 @@
 import { test, expect, describe } from "bun:test";
-import { planAutoSkips, stepKey } from "../src/onboard/lib/auto-skips";
+import {
+  isAmeriGlide,
+  planAutoSkips,
+  stepKey,
+  tenantDomain,
+} from "../src/onboard/lib/auto-skips";
 // DB getters are lazy, so importing the step list opens no connections.
 import { steps } from "../src/onboard/run";
 
@@ -65,6 +70,30 @@ describe("planAutoSkips", () => {
       ["amberjack", "directline", "orgdirectory", "phenix", "twilio", "zoiper"],
     ],
     [
+      "IAI with AMBERJACK/PHENIX URLs explicitly set: both run",
+      {
+        ...iai,
+        AMBERJACK_DATABASE_URL: "postgres://amberjack",
+        PHENIX_DATABASE_URL: "postgres://phenix",
+      },
+      ["directline", "orgdirectory", "twilio", "zoiper"],
+    ],
+    [
+      'DOMAIN="" is treated as AmeriGlide',
+      { ...ameriglide, DOMAIN: "" },
+      ["pbx", "sonar"],
+    ],
+    [
+      'DOMAIN="AmeriGlide.com" (cased) is treated as AmeriGlide',
+      { ...ameriglide, DOMAIN: "AmeriGlide.com" },
+      ["pbx", "sonar"],
+    ],
+    [
+      'DOMAIN=" ameriglide.com " (padded) is treated as AmeriGlide',
+      { ...ameriglide, DOMAIN: " ameriglide.com " },
+      ["pbx", "sonar"],
+    ],
+    [
       "AmeriGlide without MEM0_API_KEY skips orgdirectory",
       without(ameriglide, "MEM0_API_KEY"),
       ["orgdirectory", "pbx", "sonar"],
@@ -77,7 +106,12 @@ describe("planAutoSkips", () => {
     expect(planAutoSkips(ameriglide, []).notes).toEqual([
       "  (sonar, pbx: not used for ameriglide.com)",
     ]);
-    expect(planAutoSkips(iai, []).notes).toHaveLength(4); // amberjack, phenix, twilio, orgdirectory
+    expect(planAutoSkips(iai, []).notes).toEqual([
+      "  (AMBERJACK_DATABASE_URL unset - skipping Amberjack)",
+      "  (PHENIX_DATABASE_URL unset - skipping Phenix)",
+      "  (TWILIO_ACCOUNT_SID unset - skipping Twilio, Direct Line, Zoiper)",
+      "  (MEM0_API_KEY unset or tenant is not ameriglide.com - skipping Org directory)",
+    ]);
   });
 
   test("user skip entries are preserved first, without duplicates", () => {
@@ -94,6 +128,19 @@ describe("planAutoSkips", () => {
     const { skip } = planAutoSkips(iai, userSkip);
     expect(userSkip).toEqual(["google"]);
     expect(skip).not.toBe(userSkip);
+  });
+});
+
+describe("tenantDomain / isAmeriGlide", () => {
+  test.each([
+    [{}, "ameriglide.com", true],
+    [{ DOMAIN: "" }, "ameriglide.com", true],
+    [{ DOMAIN: "   " }, "ameriglide.com", true],
+    [{ DOMAIN: "AmeriGlide.com" }, "ameriglide.com", true],
+    [{ DOMAIN: " inetalliance.net " }, "inetalliance.net", false],
+  ])("%j -> %s", (env, domain, ag) => {
+    expect(tenantDomain(env)).toBe(domain);
+    expect(isAmeriGlide(env)).toBe(ag);
   });
 });
 

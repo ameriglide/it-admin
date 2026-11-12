@@ -2,11 +2,17 @@ import type { Context } from "../types";
 
 const LINE = "══════════════════════════════════════════";
 
-// A newly inserted Sonar agent starts paused, and the pause does not lift on
-// its own: the agent clicks "Start taking calls" in Sonar. An agent that
-// already existed is left as it was, so its state is not ours to report.
+// A Sonar agent that is paused takes no calls, and the pause does not lift on
+// its own: the agent clicks "Start taking calls" in Sonar. The Sonar step
+// records agent.paused as it read or wrote it; when it did not, fall back to
+// what we know from whether this run inserted the agent (new agents start
+// paused; an existing one was left as it was).
 function takingCalls(ctx: Context): string {
   if (!ctx.sonarAgentKey) return "n/a";
+  if (ctx.sonarAgentPaused === true) {
+    return 'no - paused; agent clicks "Start taking calls" once the phone registers';
+  }
+  if (ctx.sonarAgentPaused === false) return "yes";
   if (ctx.sonarAgentCreated === true) {
     return 'no - paused; agent clicks "Start taking calls" once the phone registers';
   }
@@ -48,8 +54,8 @@ ${LINE}
     Config: ${ctx.zoiperConfigPath ?? "not generated"}
     Activation: handled by setup-workstation.ps1 (ZOIPER_USERNAME/PASSWORD in .env)
 
-  PBX (Sonar PBX, MicroSIP)
-    Extension: ${ctx.extension ?? "skipped"}
+  PBX (IAI softphone, MicroSIP)
+    Extension: ${ctx.pbxAccountSheetPath ? (ctx.extension ?? ctx.sonarAgentKey) : "skipped"}
     Account sheet: ${ctx.pbxAccountSheetPath ?? "not generated"}${
       ctx.pbxPasswordMissing
         ? "\n    Password: MISSING - fill it in from 1Password before handing over the sheet"

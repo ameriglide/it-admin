@@ -1,5 +1,14 @@
 import { afterEach, beforeEach, describe, expect, it } from "bun:test";
-import { existsSync, mkdtempSync, readFileSync, rmSync } from "fs";
+import {
+  chmodSync,
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  statSync,
+  writeFileSync,
+} from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
 import {
@@ -92,24 +101,28 @@ describe("sheetFilename", () => {
   });
 });
 
-describe("pbxStep.run", () => {
-  const ENV_KEYS = [
-    "PBX_HOST",
-    "PBX_TLS_PORT",
-    "PBX_ENABLED_EXTENSIONS",
-    "PBX_OP_ITEM",
-    "PBX_OP_VAULT",
-    "PBX_OP_ACCOUNT",
-  ];
+const ENV_KEYS = [
+  "PATH",
+  "PBX_HOST",
+  "PBX_TLS_PORT",
+  "PBX_ENABLED_EXTENSIONS",
+  "PBX_OP_ITEM",
+  "PBX_OP_VAULT",
+  "PBX_OP_ACCOUNT",
+];
+
+// Per-test sandbox: a fresh cwd, the PBX env cleared (PATH kept as is), and
+// console.log silenced. Everything is put back in afterEach.
+function useSandbox(): { dir: () => string } {
   const savedEnv: Record<string, string | undefined> = {};
   const savedCwd = process.cwd();
   const savedLog = console.log;
-  let dir: string;
+  let dir = "";
 
   beforeEach(() => {
     for (const k of ENV_KEYS) {
       savedEnv[k] = process.env[k];
-      delete process.env[k];
+      if (k !== "PATH") delete process.env[k];
     }
     process.env.PBX_HOST = "pbx.example.com";
     dir = mkdtempSync(join(tmpdir(), "onboard-pbx-"));
@@ -127,25 +140,131 @@ describe("pbxStep.run", () => {
     }
   });
 
-  const ctx = (extra: Partial<Context> = {}): Context => ({
-    firstName: "Nancy",
-    lastName: "Example",
-    email: "nancy@example.com",
-    directLine: false,
-    ...extra,
+  return { dir: () => dir };
+}
+
+function setOpConfig(): void {
+  process.env.PBX_OP_ITEM = "PBX creds";
+  process.env.PBX_OP_VAULT = "vault";
+  process.env.PBX_OP_ACCOUNT = "account.example.com";
+}
+
+// Put a stub `op` first on PATH. It records its arguments, one per line, to
+// <dir>/op-args, then prints/exits as `mode` says. Returns the args file.
+function installOpStub(dir: string, mode: "ok" | "fail" | "empty" | "multi"): string {
+  const bin = join(dir, "bin");
+  mkdirSync(bin, { recursive: true });
+  const argsFile = join(dir, "op-args");
+  const body = {
+    ok: "echo s3cret",
+    fail: [
+      'echo "[ERROR] could not get item" >&2',
+      'echo "  hint: sign in with op signin" >&2',
+      "exit 1",
+    ].join("\n"),
+    empty: "exit 0",
+    multi: 'echo "s3cret,0ther"',
+  }[mode];
+  const op = join(bin, "op");
+  writeFileSync(op, `#!/bin/sh\nprintf '%s\\n' "$@" > "${argsFile}"\n${body}\n`);
+  chmodSync(op, 0o755);
+  process.env.PATH = `${bin}:${process.env.PATH ?? ""}`;
+  return argsFile;
+}
+
+const ctx = (extra: Partial<Context> = {}): Context => ({
+  firstName: "Nancy",
+  lastName: "Example",
+  email: "nancy@example.com",
+  directLine: false,
+  ...extra,
+});
+
+describe("lookupPassword", () => {
+  const sb = useSandbox();
+
+  it("explains an unconfigured 1Password lookup", async () => {
+    expect(await lookupPassword("9002")).toEqual({
+      ok: false,
+      reason: "PBX_OP_ITEM/PBX_OP_VAULT/PBX_OP_ACCOUNT not set",
+    });
   });
+
+  it("rejects a partial 1Password config by name", async () => {
+    process.env.PBX_OP_ITEM = "PBX creds";
+    await expect(lookupPassword("9002")).rejects.toThrow(
+      /PBX_OP_VAULT, PBX_OP_ACCOUNT not set/,
+    );
+  });
+
+  it("reports a missing op binary instead of aborting the run", async () => {
+    setOpConfig();
+    process.env.PATH = sb.dir(); // empty dir: no `op` on PATH
+    expect(await lookupPassword("9002")).toEqual({
+      ok: false,
+      reason: "1Password CLI (op) not installed",
+    });
+  });
+
+  it("reads the extension's field from the configured item, vault and account", async () => {
+    setOpConfig();
+    const argsFile = installOpStub(sb.dir(), "ok");
+    expect(await lookupPassword("9002")).toEqual({ ok: true, password: "s3cret" });
+    expect(readFileSync(argsFile, "utf8").trim().split("\n")).toEqual([
+      "item", "get", "PBX creds",
+      "--vault", "vault",
+      "--account", "account.example.com",
+      "--fields", "label=9002",
+      "--reveal",
+    ]);
+  });
+
+  it("returns all of op's stderr, on one line, when op fails", async () => {
+    setOpConfig();
+    installOpStub(sb.dir(), "fail");
+    const r = await lookupPassword("9002");
+    if (r.ok) throw new Error("expected a failed lookup");
+    expect(r.reason).toContain("could not get item");
+    expect(r.reason).toContain("sign in with op signin");
+    expect(r.reason).not.toContain("\n");
+    expect(r.reason.length).toBeLessThanOrEqual(300);
+  });
+
+  it("reports an empty field", async () => {
+    setOpConfig();
+    installOpStub(sb.dir(), "empty");
+    expect(await lookupPassword("9002")).toEqual({
+      ok: false,
+      reason: "field 9002 is empty",
+    });
+  });
+
+  it("refuses output where the label matched several fields", async () => {
+    setOpConfig();
+    installOpStub(sb.dir(), "multi");
+    expect(await lookupPassword("9002")).toEqual({
+      ok: false,
+      reason: "label 9002 matched more than one field",
+    });
+  });
+});
+
+describe("pbxStep.run", () => {
+  const sb = useSandbox();
 
   it("refuses an extension that is not enabled on the PBX", async () => {
     process.env.PBX_ENABLED_EXTENSIONS = "9001";
     const c = ctx({ extension: "9002" });
     await expect(pbxStep.run(c)).rejects.toThrow(/not enabled/);
     expect(c.pbxAccountSheetPath).toBeUndefined();
-    expect(existsSync(join(dir, "output"))).toBe(false);
+    expect(existsSync(join(sb.dir(), "output"))).toBe(false);
   });
 
   it("refuses when there is no extension at all", async () => {
     const c = ctx();
-    await expect(pbxStep.run(c)).rejects.toThrow(/No extension set/);
+    await expect(pbxStep.run(c)).rejects.toThrow(
+      /No extension set\. Pass --extension \(the Sonar step was skipped/,
+    );
     expect(c.pbxAccountSheetPath).toBeUndefined();
   });
 
@@ -171,34 +290,46 @@ describe("pbxStep.run", () => {
     expect(c.pbxAccountSheetPath).toBeDefined();
   });
 
-  it("reports a missing op binary instead of aborting the run", async () => {
-    process.env.PBX_OP_ITEM = "PBX creds";
-    process.env.PBX_OP_VAULT = "vault";
-    process.env.PBX_OP_ACCOUNT = "account.example.com";
-    const savedPath = process.env.PATH;
-    process.env.PATH = dir; // empty dir: no `op` on PATH
-    try {
-      expect(await lookupPassword("9002")).toEqual({
-        password: null,
-        reason: "1Password CLI (op) not installed",
-      });
-    } finally {
-      process.env.PATH = savedPath;
-    }
+  it("writes the password from 1Password into an owner-only sheet", async () => {
+    setOpConfig();
+    installOpStub(sb.dir(), "ok");
+    const c = ctx({ extension: "9002" });
+    await pbxStep.run(c);
+    expect(c.pbxPasswordMissing).toBe(false);
+    const path = c.pbxAccountSheetPath!;
+    expect(readFileSync(path, "utf8")).toMatch(/Password\s+s3cret\n/);
+    expect(statSync(path).mode & 0o777).toBe(0o600);
   });
 
-  it("explains an unconfigured 1Password lookup", async () => {
-    expect(await lookupPassword("9002")).toEqual({
-      password: null,
-      reason: "PBX_OP_ITEM/PBX_OP_VAULT/PBX_OP_ACCOUNT not set",
-    });
+  it("tightens the mode of a sheet left by an earlier run", async () => {
+    const out = join(process.cwd(), "output"); // cwd is realpath'd; sb.dir() may not be
+    mkdirSync(out, { recursive: true });
+    const stale = join(out, sheetFilename("9002", "Nancy", "Example"));
+    writeFileSync(stale, "old");
+    chmodSync(stale, 0o644);
+    const c = ctx({ extension: "9002" });
+    await pbxStep.run(c);
+    expect(c.pbxAccountSheetPath).toBe(stale);
+    expect(statSync(stale).mode & 0o777).toBe(0o600);
+    expect(readFileSync(stale, "utf8")).not.toBe("old");
   });
 
-  it("rejects a partial 1Password config by name", async () => {
+  it("uses PBX_TLS_PORT when set", async () => {
+    process.env.PBX_TLS_PORT = "5161";
+    const c = ctx({ extension: "9002" });
+    await pbxStep.run(c);
+    const sheet = readFileSync(c.pbxAccountSheetPath!, "utf8");
+    expect(sheet).toMatch(/SIP server\s+pbx\.example\.com:5161\n/);
+    expect(sheet).not.toContain(":5061");
+  });
+
+  it("rejects a partial 1Password config by name, writing nothing", async () => {
     process.env.PBX_OP_ITEM = "PBX creds";
     const c = ctx({ extension: "9002" });
     await expect(pbxStep.run(c)).rejects.toThrow(
       /PBX_OP_VAULT, PBX_OP_ACCOUNT not set/,
     );
+    expect(c.pbxAccountSheetPath).toBeUndefined();
+    expect(existsSync(join(sb.dir(), "output"))).toBe(false);
   });
 });

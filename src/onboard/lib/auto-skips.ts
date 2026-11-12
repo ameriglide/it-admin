@@ -1,4 +1,7 @@
 import { mirrorsOrgDirectory } from "../steps/org-directory";
+import { isAmeriGlide } from "./tenant";
+
+export { tenantDomain, isAmeriGlide } from "./tenant";
 
 // The key a step is matched by in the --skip list: its name lowercased with
 // whitespace stripped ("Google Groups" -> "googlegroups").
@@ -6,10 +9,16 @@ export function stepKey(name: string): string {
   return name.toLowerCase().replace(/\s+/g, "");
 }
 
+// Whether a step (by stepKey) is skipped: a skip entry matches its key exactly
+// or as a prefix ("google" skips both Google Workspace and Google Groups).
+export function isSkipped(key: string, skip: string[]): boolean {
+  return skip.some((s) => key === s || key.startsWith(s));
+}
+
 // Decides which steps run() skips on its own, on top of the user's --skip.
 //
-// One codebase serves two tenants, told apart by DOMAIN (default
-// ameriglide.com, as in bin/onboard):
+// One codebase serves two tenants, told apart by DOMAIN (see tenantDomain:
+// default ameriglide.com, trimmed and lowercased):
 //   - ameriglide.com uses Amberjack and Phenix, never Sonar or the PBX. Those
 //     two are always skipped. Amberjack/Phenix are never auto-skipped here: a
 //     missing DATABASE_URL must fail loudly in the step's getter, not turn
@@ -29,7 +38,6 @@ export function planAutoSkips(
 ): { skip: string[]; notes: string[] } {
   const skip = [...new Set(userSkip)];
   const notes: string[] = [];
-  const tenant = env.DOMAIN ?? "ameriglide.com";
 
   const add = (keys: string[], note: string) => {
     const added = keys.filter((k) => !skip.includes(k));
@@ -41,7 +49,7 @@ export function planAutoSkips(
     if (!env[envVar]) add(keys, `  (${envVar} unset - skipping ${why})`);
   };
 
-  if (tenant === "ameriglide.com") {
+  if (isAmeriGlide(env)) {
     add(["sonar", "pbx"], "  (sonar, pbx: not used for ameriglide.com)");
   } else {
     addUnlessSet("AMBERJACK_DATABASE_URL", ["amberjack"], "Amberjack");
