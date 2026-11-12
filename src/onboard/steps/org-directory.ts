@@ -1,5 +1,6 @@
 import type { Step, Context } from "../types";
 import { getDirectoryClient } from "../lib/google";
+import { isAmeriGlide } from "../lib/tenant";
 import {
   orgDirectoryMemoryIds,
   personFromDirectoryUser,
@@ -14,16 +15,19 @@ const RESEED_HINT =
 export function mirrorsOrgDirectory(
   env: Record<string, string | undefined> = process.env,
 ): boolean {
-  return Boolean(env.MEM0_API_KEY) && (env.DOMAIN ?? "ameriglide.com") === "ameriglide.com";
+  return Boolean(env.MEM0_API_KEY) && isAmeriGlide(env);
 }
 
 // Adds the new hire to the org-directory mem0 mirror so /who resolves them
 // straight away instead of after the next manual reseed (the counterpart of
 // the offboard step that removes them).
 //
-// Unlike every other step, a failure here only warns. This runs last, and a
-// throw would exit before printSummary, which is the only place the new
-// Google temp password is ever shown.
+// Unlike every other step, a failure here only warns. It is the last step and
+// a convenience mirror, not provisioning: by the time it runs every account
+// exists, so its failure should not turn the run into a failure (exit 1, no
+// printSummary) - the operator would lose the full summary over a cache that
+// the next reseed fixes anyway. (run() prints the temp password on failure
+// too, so the password is not at stake.)
 export const orgDirectoryStep: Step = {
   name: "Org directory",
 

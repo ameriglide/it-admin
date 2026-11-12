@@ -3,6 +3,7 @@
 import "../src/lib/load-env"; // must be first: loads repo-root .env regardless of cwd
 import { parseArgs } from "util";
 import { run } from "../src/onboard/run";
+import { tenantDomain } from "../src/onboard/lib/tenant";
 import { confirm, input } from "../src/onboard/lib/prompt";
 import { walkWorkstationSetup } from "../src/onboard/workstation";
 import type { Context } from "../src/onboard/types";
@@ -17,13 +18,21 @@ const { values } = parseArgs({
     "direct-line": { type: "boolean", default: false },
     channel: { type: "string" },
     role: { type: "string" },
+    extension: { type: "string" },
+    "call-center": { type: "string" },
+    "no-sales": { type: "boolean", default: false },
   },
   strict: true,
 });
 
 const directLine = Bun.argv.includes("--direct-line") ? true : undefined;
 const skip = values.skip
-  ? values.skip.split(",").map((s) => s.trim().toLowerCase())
+  ? values.skip
+      .split(",")
+      .map((s) => s.trim().toLowerCase())
+      // "a,b," must not yield "", which prefix-matches every step.
+      // planAutoSkips drops such entries too; this keeps the list clean here.
+      .filter(Boolean)
   : [];
 
 const firstName = values.first ?? (await input("First name"));
@@ -34,7 +43,7 @@ if (!firstName || !lastName) {
   process.exit(1);
 }
 
-const domain = process.env.DOMAIN ?? "ameriglide.com";
+const domain = tenantDomain();
 const email =
   values.email ??
   `${firstName.toLowerCase()}.${lastName.toLowerCase()}@${domain}`;
@@ -48,6 +57,9 @@ const ctx: Context = {
   directLine,
   phenixChannel: values.channel,
   role: values.role,
+  extension: values.extension,
+  sonarCallCenter: values["call-center"],
+  sales: values["no-sales"] ? false : undefined,
 };
 
 await run(ctx, skip);

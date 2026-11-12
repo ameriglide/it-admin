@@ -1,8 +1,48 @@
 import type { Context } from "../types";
+import { isAmeriGlide } from "./tenant";
 
 const LINE = "══════════════════════════════════════════";
 
+// A Sonar agent that is paused takes no calls, and the pause does not lift on
+// its own: the agent clicks "Start taking calls" in Sonar. The sonarAgentCreated
+// fallback is defensive: the Sonar step always sets sonarAgentPaused alongside
+// sonarAgentKey.
+function takingCalls(ctx: Context): string {
+  if (!ctx.sonarAgentKey) return "n/a";
+  if (ctx.sonarAgentPaused === true) {
+    return 'no - paused; agent clicks "Start taking calls" once the phone registers';
+  }
+  if (ctx.sonarAgentPaused === false) return "yes";
+  if (ctx.sonarAgentCreated === true) {
+    return 'no - paused; agent clicks "Start taking calls" once the phone registers';
+  }
+  return "unchanged (agent already existed)";
+}
+
+// Sonar and the PBX exist only in the IAI tenant; an AmeriGlide summary leaves
+// both sections out rather than showing them as "skipped".
+function sonarSection(ctx: Context): string {
+  return `
+  Sonar
+    Agent Key: ${ctx.sonarAgentKey ?? "skipped"}
+    Taking calls: ${takingCalls(ctx)}
+`;
+}
+
+function pbxSection(ctx: Context): string {
+  return `
+  PBX (IAI softphone, MicroSIP)
+    Extension: ${ctx.pbxAccountSheetPath ? (ctx.extension ?? ctx.sonarAgentKey) : "skipped"}
+    Account sheet: ${ctx.pbxAccountSheetPath ?? "not generated"}${
+      ctx.pbxPasswordMissing
+        ? "\n    Password: MISSING - fill it in from 1Password before handing over the sheet"
+        : ""
+    }
+`;
+}
+
 export function printSummary(ctx: Context): void {
+  const iai = !isAmeriGlide();
   console.log(`
 ${LINE}
   New Employee: ${ctx.firstName} ${ctx.lastName}
@@ -20,7 +60,7 @@ ${LINE}
 
   Phenix
     Agent ID: ${ctx.phenixAgentId ?? "skipped"}
-
+${iai ? sonarSection(ctx) : ""}
   Twilio
     Worker SID: ${ctx.twilioWorkerSid ?? "skipped"}
     SIP Username: ${ctx.sipUsername ?? "skipped"}
@@ -32,7 +72,7 @@ ${LINE}
   Zoiper
     Config: ${ctx.zoiperConfigPath ?? "not generated"}
     Activation: handled by setup-workstation.ps1 (ZOIPER_USERNAME/PASSWORD in .env)
-
+${iai ? pbxSection(ctx) : ""}
 ${LINE}
   Next: set up the workstation (you'll be prompted), or use bin/copy for one-offs
 ${LINE}

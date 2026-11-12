@@ -1,7 +1,10 @@
 import { google } from "googleapis";
+import { tenantDomain } from "../onboard/lib/tenant";
 
+// Normalized the same way onboarding picks the tenant (trimmed, lowercased,
+// empty means ameriglide.com), so group addresses match the tenant's steps.
 export function getDomain(): string {
-  return process.env.DOMAIN ?? "ameriglide.com";
+  return tenantDomain();
 }
 
 // Short tokens ("sales-staff" or "sales-staff@") expand to <localpart>@<domain>,

@@ -1,0 +1,82 @@
+import { mirrorsOrgDirectory } from "../steps/org-directory";
+import { isAmeriGlide } from "./tenant";
+
+// The key a step is matched by in the --skip list: its name lowercased with
+// whitespace stripped ("Google Groups" -> "googlegroups").
+export function stepKey(name: string): string {
+  return name.toLowerCase().replace(/\s+/g, "");
+}
+
+// Whether a step (by stepKey) is skipped: a skip entry matches its key exactly
+// or as a prefix ("google" skips both Google Workspace and Google Groups).
+export function isSkipped(key: string, skip: string[]): boolean {
+  return skip.some((s) => key === s || key.startsWith(s));
+}
+
+// Decides which steps run() skips on its own, on top of the user's --skip.
+//
+// One codebase serves two tenants, told apart by DOMAIN (see tenantDomain:
+// default ameriglide.com, trimmed and lowercased):
+//   - ameriglide.com uses Amberjack and Phenix, never Sonar or the PBX. Those
+//     two are always skipped. Amberjack/Phenix are never auto-skipped here: a
+//     missing DATABASE_URL must fail loudly, not turn into a silent
+//     "skipped". preflight() reports it before any step runs; the step's
+//     getter throwing is only a backstop.
+//   - any other tenant (e.g. inetalliance.net) uses Sonar and the PBX, which
+//     are therefore never auto-skipped (missing config is reported the same
+//     way, by preflight() first), and has no Amberjack/Phenix unless its env
+//     explicitly provides them.
+// Twilio (and the Direct Line / Zoiper steps that consume its SIP
+// credentials) and Google Groups are optional for every tenant and are
+// skipped when their configuration is absent. The org-directory mirror is
+// AmeriGlide-only and also needs MEM0_API_KEY; it is skipped otherwise.
+//
+// Pure: returns a new skip list (user entries first, no duplicates, empty or
+// whitespace-only entries dropped - "" would prefix-match every step) and the
+// console notes run() prints; userSkip is not modified.
+export function planAutoSkips(
+  env: Record<string, string | undefined>,
+  userSkip: string[],
+): { skip: string[]; notes: string[] } {
+  const skip = [...new Set(userSkip.filter((s) => s.trim() !== ""))];
+  const notes: string[] = [];
+
+  const add = (keys: string[], note: string) => {
+    const added = keys.filter((k) => !skip.includes(k));
+    if (!added.length) return;
+    skip.push(...added);
+    notes.push(note);
+  };
+  const addUnlessSet = (envVar: string, keys: string[], why: string) => {
+    if (!env[envVar]) add(keys, `  (${envVar} unset - skipping ${why})`);
+  };
+
+  if (isAmeriGlide(env)) {
+    add(["sonar", "pbx"], "  (sonar, pbx: not used for ameriglide.com)");
+  } else {
+    addUnlessSet("AMBERJACK_DATABASE_URL", ["amberjack"], "Amberjack");
+    addUnlessSet("PHENIX_DATABASE_URL", ["phenix"], "Phenix");
+  }
+
+  // Zoiper here is the Twilio-SIP softphone config, a different thing from
+  // the PBX step (IAI's phone system).
+  addUnlessSet(
+    "TWILIO_ACCOUNT_SID",
+    ["twilio", "directline", "zoiper"],
+    "Twilio, Direct Line, Zoiper",
+  );
+
+  // No role->group config for this tenant: skip rather than prompt with an
+  // empty list.
+  addUnlessSet("ONBOARD_ROLES", ["googlegroups"], "Google Groups");
+
+  // The org-directory mem0 mirror only covers ameriglide.com, and needs a key.
+  if (!mirrorsOrgDirectory(env)) {
+    add(
+      ["orgdirectory"],
+      "  (MEM0_API_KEY unset or tenant is not ameriglide.com - skipping Org directory)",
+    );
+  }
+
+  return { skip, notes };
+}
