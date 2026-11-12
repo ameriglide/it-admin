@@ -30,9 +30,15 @@ _last verified: 2026-11-12_
 | **PBX** | always off ameriglide.com (needs `PBX_HOST`) | **IAI** |
 | Org directory | `MEM0_API_KEY` + ameriglide.com | AmeriGlide |
 
-So an IAI run needs its own checkout with its own `.env` — the TypeScript
-entrypoints resolve `.env` from the repo root they live in, so a second clone
-is all it takes. Connection strings, hostnames and the 1Password coordinates are
+So an IAI run needs its own checkout with its own `.env`, **and must be started
+with that checkout as the current directory** (`cd <iai-clone> && bin/onboard ...`).
+The entrypoints do load `.env` from the repo root they live in, but only for
+keys that are not already set, and Bun first auto-loads `.env` from the current
+directory. Run the IAI clone's `bin/onboard` from inside the AmeriGlide checkout
+and AmeriGlide's `DOMAIN`, Google admin and Amberjack/Phenix/Twilio values win.
+`GOOGLE_SERVICE_ACCOUNT_KEY=./service-account.json` is also resolved against
+the current directory. Check the `Tenant:` line the run prints before it
+creates anything. Connection strings, hostnames and the 1Password coordinates are
 deployment topology and **are not in this repo**; they live in `.env` and in
 `ameriglide/it-admin-docs`.
 
