@@ -43,7 +43,9 @@ pointer.
 
 - `bin/` — bash entry points: `copy` (interactive clipboard helper for
   workstation setup), `cost-allocation`, `groups`, `onboard`, `offboard`,
-  `reset-user`, `rotate-ssm-activation`, `sage-taxcode-diff`, `sip-password`.
+  `mem0-secret-scan` (weekly check of new mem0 memories for stored
+  credentials), `reset-user`, `rotate-ssm-activation`, `sage-taxcode-diff`,
+  `sip-password`.
 - `src/` — TypeScript run by Bun: `cost-allocation/`, `offboard/`, `onboard/`,
   and shared `lib/` (`google-groups.ts`, `load-env.ts`).
 - `scripts/` — PowerShell for Windows workstations and servers (`sage-taxcode-{lib,dump,apply}.ps1` for Sage system-table recovery), plus a couple
